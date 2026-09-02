@@ -97,7 +97,7 @@ function LoginScreen() {
           </button>
         </form>
 
-        <div className="security-note"><span>●</span> Secure authentication powered by Amazon Cognito</div>
+
       </div>
     </div>
   )
