@@ -12,6 +12,45 @@ function Logo({ compact = false }) {
 }
 
 function LoginScreen() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [loginError, setLoginError] = useState('')
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setLoginError('')
+
+    if (!email.trim() || !password) {
+      setLoginError('Please enter your email address and password.')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const nextStep = await login(email, password)
+      if (nextStep?.nextStep?.signInStep && nextStep.nextStep.signInStep !== 'DONE') {
+        setLoginError('Additional account verification is required. Please contact your administrator.')
+        return
+      }
+      window.location.reload()
+    } catch (error) {
+      const message = error?.message || 'Unable to sign in. Please check your email address and password.'
+      if (message.includes('Incorrect username or password')) {
+        setLoginError('Incorrect email address or password. Please try again.')
+      } else if (message.includes('User does not exist')) {
+        setLoginError('No portal account was found for this email address.')
+      } else if (message.includes('User is not confirmed')) {
+        setLoginError('Your portal account is not confirmed. Please contact your administrator.')
+      } else {
+        setLoginError(message)
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <div className="login-page">
       <div className="login-card">
@@ -19,10 +58,46 @@ function LoginScreen() {
         <div className="login-copy">
           <span className="eyebrow">CUSTOMER SUPPORT PORTAL</span>
           <h1>Welcome to your IT support portal</h1>
-          <p>Securely raise service requests, track incidents and stay connected with the ALTEKNETWORKS support team.</p>
+          <p>Sign in to raise service requests, track incidents and stay connected with the ALTEKNETWORKS support team.</p>
         </div>
-        <button className="primary-button full" onClick={login}>Sign in securely</button>
-        <div className="security-note"><span>●</span> Authentication is secured by Amazon Cognito</div>
+
+        {loginError && <div className="login-error" role="alert">{loginError}</div>}
+
+        <form className="login-form" onSubmit={submit}>
+          <label>Email Address
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@company.com"
+              autoComplete="username"
+              autoFocus
+              required
+            />
+          </label>
+
+          <label>Password
+            <div className="password-field">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                autoComplete="current-password"
+                required
+              />
+              <button type="button" className="password-toggle" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </label>
+
+          <button className="primary-button full" type="submit" disabled={submitting}>
+            {submitting ? 'Signing in…' : 'Sign In'}
+          </button>
+        </form>
+
+        <div className="security-note"><span>●</span> Secure authentication powered by Amazon Cognito</div>
       </div>
     </div>
   )
@@ -41,7 +116,7 @@ function App() {
   useEffect(() => {
     refreshUser()
     const unsubscribe = authEvents(({ payload }) => {
-      if (payload.event === 'signedIn' || payload.event === 'signInWithRedirect') refreshUser()
+      if (payload.event === 'signedIn') refreshUser()
       if (payload.event === 'signedOut') setUser(null)
     })
     return unsubscribe

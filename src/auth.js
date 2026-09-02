@@ -1,8 +1,10 @@
 import { Amplify } from 'aws-amplify'
-import { fetchAuthSession, getCurrentUser, signInWithRedirect, signOut } from 'aws-amplify/auth'
+import { fetchAuthSession, getCurrentUser, signIn, signOut } from 'aws-amplify/auth'
 import { Hub } from 'aws-amplify/utils'
 import { config } from './config'
 
+// Direct Cognito authentication: the portal uses its own login form.
+// No Cognito Managed Login / hosted redirect is used.
 Amplify.configure({
   Auth: {
     Cognito: {
@@ -10,13 +12,6 @@ Amplify.configure({
       userPoolClientId: config.userPoolClientId,
       loginWith: {
         email: true,
-        oauth: {
-          domain: config.cognitoDomain,
-          scopes: ['openid', 'email', 'profile'],
-          redirectSignIn: [config.redirectUri],
-          redirectSignOut: [config.signOutUri],
-          responseType: 'code',
-        },
       },
     },
   },
@@ -24,8 +19,13 @@ Amplify.configure({
 
 const authEvents = (callback) => Hub.listen('auth', callback)
 
-const login = async () => {
-  await signInWithRedirect()
+const login = async (email, password) => {
+  const result = await signIn({
+    username: email.trim(),
+    password,
+  })
+
+  return result
 }
 
 const logout = async () => {
