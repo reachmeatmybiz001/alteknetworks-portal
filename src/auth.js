@@ -22,17 +22,17 @@ Amplify.configure({
   },
 })
 
-export const authEvents = (callback) => Hub.listen('auth', callback)
+const authEvents = (callback) => Hub.listen('auth', callback)
 
-export async function login() {
+const login = async () => {
   await signInWithRedirect()
 }
 
-export async function logout() {
+const logout = async () => {
   await signOut({ global: false })
 }
 
-export async function currentUser() {
+const currentUser = async () => {
   try {
     const user = await getCurrentUser()
     const session = await fetchAuthSession()
@@ -50,3 +50,5 @@ export async function currentUser() {
     return null
   }
 }
+
+export { authEvents, currentUser, login, logout }
