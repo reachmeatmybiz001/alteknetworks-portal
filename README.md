@@ -4,7 +4,7 @@ React + Vite customer portal for `portal.alteknetworks.com`.
 
 ## Included
 
-- Amazon Cognito Managed Login / OAuth Authorization Code flow
+- Direct email/password sign-in using Amazon Cognito (no Cognito hosted/managed login redirect)
 - Customer login and logout
 - Customer dashboard
 - Ticket creation, listing, filtering and status tracking
@@ -20,12 +20,7 @@ The project is preconfigured for the ALTEKNETWORKS Cognito SPA client used for t
 
 If you use a different client, set the variables in `.env` or Amplify Hosting environment variables using `.env.example` as the template.
 
-The Cognito app client should use:
-
-- Authorization code grant
-- Scopes: `openid`, `email`, `profile`
-- Callback URL: `https://portal.alteknetworks.com`
-- Sign-out URL: `https://portal.alteknetworks.com`
+The portal uses direct Cognito user-pool authentication from its own branded login form. The Cognito SPA client remains configured in AWS, but the browser does not redirect to Cognito Managed Login for sign-in. The callback/sign-out URLs may remain configured as `https://portal.alteknetworks.com` for the existing app client, but they are not used by the direct login form.
 
 For local development, add `http://localhost:5173` to the Cognito callback and sign-out URL lists, then set `VITE_COGNITO_REDIRECT_URI=http://localhost:5173` and `VITE_COGNITO_SIGNOUT_URI=http://localhost:5173`.
 
