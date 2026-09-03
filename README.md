@@ -1,98 +1,49 @@
-# ALTEKNETWORKS Unified Portal
+# ALTEKNETWORKS Customer Portal
 
-Single portal for all four ALTEKNETWORKS user types:
+React + Vite customer portal for `portal.alteknetworks.com`.
 
-- **Customers** — raise tickets and view only their own tickets.
-- **Support Admins** — raise/view/update all tickets and assign tickets; no customer user administration.
-- **User Admins** — raise/view/update tickets (assignment not allowed) and manage customer users; cannot manage administrator roles.
-- **Super Admins** — full portal administration, including administrator role management.
+## Included
 
-## Portal URL
+- Direct email/password sign-in using Amazon Cognito (no Cognito hosted/managed login redirect)
+- Customer login and logout
+- Customer dashboard
+- Ticket creation, listing, filtering and status tracking
+- Admin dashboard UI based on Cognito group membership (`Admins`)
+- Responsive ALTEKNETWORKS branding
+- AWS Amplify Hosting build specification
+- API service abstraction ready for API Gateway + Lambda + DynamoDB
+- Local/demo ticket storage when no API URL is configured
 
-Production URL: **https://portal.alteknetworks.com**
+## Cognito
 
-The frontend is designed for AWS Amplify Hosting. The backend is AWS SAM and creates API Gateway HTTP API, Lambda and DynamoDB.
+The project is preconfigured for the ALTEKNETWORKS Cognito SPA client used for the portal. No Cognito client secret is used in the browser.
 
-## Existing Cognito configuration
+If you use a different client, set the variables in `.env` or Amplify Hosting environment variables using `.env.example` as the template.
 
-- Region: `ap-south-1`
-- User Pool: `ap-south-1_SlGcnsePN`
-- SPA Client: `na3h2smm2qp9gvhfc14h7q4bj`
-- Cognito groups: `Customers`, `SupportAdmins`, `UserAdmins`, `SuperAdmins`
+The portal uses direct Cognito user-pool authentication from its own branded login form. The Cognito SPA client remains configured in AWS, but the browser does not redirect to Cognito Managed Login for sign-in. The callback/sign-out URLs may remain configured as `https://portal.alteknetworks.com` for the existing app client, but they are not used by the direct login form.
 
-## Important security design
+For local development, add `http://localhost:5173` to the Cognito callback and sign-out URL lists, then set `VITE_COGNITO_REDIRECT_URI=http://localhost:5173` and `VITE_COGNITO_SIGNOUT_URI=http://localhost:5173`.
 
-The UI hides functions that the current role cannot use, **but UI hiding is not the security boundary**. Every sensitive operation is checked again in `backend/index.mjs` using the Cognito JWT `cognito:groups` claim.
+## Admin access
 
-Examples:
+Create a Cognito user-pool group named `Admins` and add administrator users to it. Users without the `Admins` group are treated as customers.
 
-- Customer ticket queries are filtered by the authenticated user's email.
-- User Admin cannot create Support Admin, User Admin or Super Admin accounts.
-- User Admin cannot change administrator roles.
-- User Admin can enable/disable/reset/delete customers only.
-- Only Super Admin can manage administrator roles.
-- Only Support Admin and Super Admin can assign tickets.
-- Customer identity is taken from the JWT, not from the ticket creation form.
+The frontend never stores passwords.
 
-## Deploy backend first
+## Ticket API
 
-From the `backend` directory, deploy with AWS SAM:
+The UI is ready for a REST API. Set `VITE_API_BASE_URL` to the API Gateway base URL.
 
-```bash
-sam build
-sam deploy --guided
-```
+Expected endpoints:
 
-Use these parameter values when prompted:
+- `GET /tickets`
+- `POST /tickets`
+- `PATCH /tickets/:id`
 
-- `UserPoolId`: `ap-south-1_SlGcnsePN`
-- `UserPoolClientId`: `na3h2smm2qp9gvhfc14h7q4bj`
-- `AllowedOrigin`: `https://portal.alteknetworks.com`
+The frontend sends the Cognito access token as `Authorization: Bearer <token>`.
 
-After deployment, copy the CloudFormation output **ApiUrl**.
+If `VITE_API_BASE_URL` is empty, the app uses browser local storage so the portal can be demonstrated before the AWS API is created.
 
-## Deploy frontend
+## Deploy with Amplify
 
-Connect this repository to AWS Amplify Hosting with:
-
-- Branch: `main`
-- Build command: `npm run build`
-- Output directory: `dist`
-
-Set Amplify environment variables:
-
-```text
-VITE_AWS_REGION=ap-south-1
-VITE_COGNITO_USER_POOL_ID=ap-south-1_SlGcnsePN
-VITE_COGNITO_CLIENT_ID=na3h2smm2qp9gvhfc14h7q4bj
-VITE_API_BASE_URL=<ApiUrl output from SAM>
-```
-
-Then configure the Amplify custom domain:
-
-`portal.alteknetworks.com`
-
-Do not move the main ALTEKNETWORKS website from GitHub Pages.
-
-## Permission matrix implemented
-
-| Function | Customer | Support Admin | User Admin | Super Admin |
-|---|---|---|---|---|
-| Raise ticket | Yes | Yes | Yes | Yes |
-| View own tickets | Yes | Yes | Yes | Yes |
-| View all tickets | No | Yes | Yes | Yes |
-| Update tickets | No | Yes | Yes | Yes |
-| Assign tickets | No | Yes | No | Yes |
-| Create customer | No | No | Yes | Yes |
-| Disable customer | No | No | Yes | Yes |
-| Reset customer password | No | No | Yes | Yes |
-| Delete customer | No | No | Yes | Yes |
-| Create Support Admin | No | No | No | Yes |
-| Create User Admin | No | No | No | Yes |
-| Manage admin roles | No | No | No | Yes |
-
-## Notes
-
-- The backend uses a DynamoDB GSI named `customerEmail-index` for customer ticket isolation.
-- Password reset uses Cognito `AdminResetUserPassword`, which sends the Cognito reset flow according to the user pool configuration.
-- For production, keep `AllowedOrigin` restricted to the portal domain.
+Connect this repository and branch to AWS Amplify Hosting. Amplify will detect the Vite/React application and the included `amplify.yml` explicitly builds `dist`.
