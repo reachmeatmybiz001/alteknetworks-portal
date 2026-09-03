@@ -38,7 +38,7 @@ const currentUser = async () => {
     const session = await fetchAuthSession()
     const accessPayload = session.tokens?.accessToken?.payload || {}
     const idPayload = session.tokens?.idToken?.payload || {}
-    const groups = accessPayload['cognito:groups'] || idPayload['cognito:groups'] || []
+    const groups = idPayload['cognito:groups'] || accessPayload['cognito:groups'] || []
     return {
       username: user.username,
       userId: user.userId,
