@@ -42,18 +42,28 @@ function App() {
   }, [])
 
   async function handleLogin(event) {
-    event.preventDefault()
-    setLoginError('')
-    setLoading(true)
-    try {
-      await signIn({ username: email.trim(), password, options: { authFlowType: 'USER_SRP_AUTH' } })
-      setAuth(await currentAuth())
-    } catch (error) {
-      setLoginError(error?.message || 'Unable to sign in.')
-    } finally {
-      setLoading(false)
+  event.preventDefault()
+  setLoginError('')
+  setLoading(true)
+  try {
+    const result = await signIn({
+      username: email.trim(),
+      password,
+      options: { authFlowType: 'USER_SRP_AUTH' }
+    })
+
+    if (result.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+      setChallenge('NEW_PASSWORD_REQUIRED')
+      return
     }
+
+    setAuth(await currentAuth())
+  } catch (error) {
+    setLoginError(error?.message || 'Unable to sign in.')
+  } finally {
+    setLoading(false)
   }
+}
 
   async function handleLogout() {
     await signOut()
