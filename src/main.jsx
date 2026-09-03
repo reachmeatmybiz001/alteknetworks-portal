@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { Amplify } from 'aws-amplify'
-import { signIn, signOut, getCurrentUser, confirmSignIn } from 'aws-amplify/auth'
+import { signIn, signOut, getCurrentUser } from 'aws-amplify/auth'
 import { config } from './config'
 import { currentAuth, isAdminRole, primaryRole, ROLES } from './auth'
 import * as api from './api'
@@ -34,52 +34,24 @@ function App() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [challenge, setChallenge] = useState('')
-  const [newPassword, setNewPassword] = useState('')
 
   useEffect(() => {
     getCurrentUser().then(() => currentAuth()).then(setAuth).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
   async function handleLogin(event) {
-  event.preventDefault()
-  setLoginError('')
-  setLoading(true)
-  try {
-    const result = await signIn({
-      username: email.trim(),
-      password,
-      options: { authFlowType: 'USER_SRP_AUTH' }
-    })
-
-    if (result.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
-      setChallenge('NEW_PASSWORD_REQUIRED')
-      return
+    event.preventDefault()
+    setLoginError('')
+    setLoading(true)
+    try {
+      await signIn({ username: email.trim(), password, options: { authFlowType: 'USER_SRP_AUTH' } })
+      setAuth(await currentAuth())
+    } catch (error) {
+      setLoginError(error?.message || 'Unable to sign in.')
+    } finally {
+      setLoading(false)
     }
-
-    setAuth(await currentAuth())
-  } catch (error) {
-    setLoginError(error?.message || 'Unable to sign in.')
-  } finally {
-    setLoading(false)
   }
-}
-  async function handleNewPassword(event) {
-  event.preventDefault()
-  setLoginError('')
-  setLoading(true)
-
-  try {
-    await confirmSignIn({ challengeResponse: newPassword })
-    setChallenge('')
-    setNewPassword('')
-    setAuth(await currentAuth())
-  } catch (error) {
-    setLoginError(error?.message || 'Unable to set the new password.')
-  } finally {
-    setLoading(false)
-  }
-}
 
   async function handleLogout() {
     await signOut()
@@ -87,11 +59,11 @@ function App() {
   }
 
   if (loading) return <div className="center-screen"><div className="loader" />Loading portal…</div>
-  if (!auth) return <Login email={email} password={password} showPassword={showPassword} setEmail={setEmail} setPassword={setPassword} setShowPassword={setShowPassword} error={loginError} onSubmit={handleLogin} challenge={challenge} newPassword={newPassword} setNewPassword={setNewPassword} onNewPassword={handleNewPassword} />
+  if (!auth) return <Login email={email} password={password} showPassword={showPassword} setEmail={setEmail} setPassword={setPassword} setShowPassword={setShowPassword} error={loginError} onSubmit={handleLogin} />
   return <Portal auth={auth} onLogout={handleLogout} />
 }
 
-function Login({ email, password, showPassword, setEmail, setPassword, setShowPassword, error, onSubmit, challenge, newPassword, setNewPassword, onNewPassword }) {
+function Login({ email, password, showPassword, setEmail, setPassword, setShowPassword, error, onSubmit }) {
   return <div className="login-page">
     <div className="watermark">ALTEKNETWORKS IT SERVICES</div>
     <div className="login-card">
@@ -99,43 +71,17 @@ function Login({ email, password, showPassword, setEmail, setPassword, setShowPa
       <div className="brand-sub">IT SERVICES</div>
       <h1>CUSTOMER SUPPORT PORTAL</h1>
       <p className="muted">Secure access for customers and authorized administrators.</p>
-      {challenge === 'NEW_PASSWORD_REQUIRED' ? (
-  <form onSubmit={onNewPassword}>
-    <label>New Password</label>
-    <input
-      type="password"
-      value={newPassword}
-      onChange={e => setNewPassword(e.target.value)}
-      autoComplete="new-password"
-      required
-    />
-
-    {error && <div className="error">{error}</div>}
-
-    <button className="primary wide" type="submit">
-      Set New Password
-    </button>
-  </form>
-) : (
-  <form onSubmit={onSubmit}>
-    <label>Email</label>
-    <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="username" required />
-
-    <label>Password</label>
-    <div className="password-wrap">
-      <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" required />
-      <button type="button" className="show-btn" onClick={() => setShowPassword(v => !v)}>
-        {showPassword ? 'Hide' : 'Show'}
-      </button>
-    </div>
-
-    {error && <div className="error">{error}</div>}
-
-    <button className="primary wide" type="submit">
-      Sign In
-    </button>
-  </form>
-)}
+      <form onSubmit={onSubmit}>
+        <label>Email</label>
+        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="username" required />
+        <label>Password</label>
+        <div className="password-wrap">
+          <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" required />
+          <button type="button" className="show-btn" onClick={() => setShowPassword(v => !v)}>{showPassword ? 'Hide' : 'Show'}</button>
+        </div>
+        {error && <div className="error">{error}</div>}
+        <button className="primary wide" type="submit">Sign In</button>
+      </form>
     </div>
   </div>
 }
