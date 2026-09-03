@@ -1,0 +1,158 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: ALTEKNETWORKS unified portal API with backend-enforced RBAC
+
+Parameters:
+  UserPoolId:
+    Type: String
+    Default: ap-south-1_SlGcnsePN
+  UserPoolClientId:
+    Type: String
+    Default: na3h2smm2qp9gvhfc14h7q4bj
+  AllowedOrigin:
+    Type: String
+    Default: https://portal.alteknetworks.com
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 20
+    MemorySize: 512
+    Environment:
+      Variables:
+        USER_POOL_ID: !Ref UserPoolId
+        TICKETS_TABLE: !Ref TicketsTable
+        ALLOWED_ORIGIN: !Ref AllowedOrigin
+
+Resources:
+  PortalApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedOrigin
+        AllowHeaders:
+          - authorization
+          - content-type
+        AllowMethods:
+          - GET
+          - POST
+          - PATCH
+          - DELETE
+          - OPTIONS
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            JwtConfiguration:
+              issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}
+              audience:
+                - !Ref UserPoolClientId
+            Identity:
+              Headers:
+                - Authorization
+        DefaultAuthorizer: CognitoAuthorizer
+
+  PortalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./
+      Handler: index.handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:ListUsers
+                - cognito-idp:AdminCreateUser
+                - cognito-idp:AdminEnableUser
+                - cognito-idp:AdminDisableUser
+                - cognito-idp:AdminDeleteUser
+                - cognito-idp:AdminGetUser
+                - cognito-idp:AdminAddUserToGroup
+                - cognito-idp:AdminRemoveUserFromGroup
+                - cognito-idp:AdminResetUserPassword
+                - cognito-idp:AdminUpdateUserAttributes
+              Resource: !Sub arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Scan
+                - dynamodb:Query
+              Resource:
+                - !GetAtt TicketsTable.Arn
+                - !Sub ${TicketsTable.Arn}/index/*
+      Events:
+        TicketsGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PortalApi
+            Path: /tickets
+            Method: GET
+        TicketsPost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PortalApi
+            Path: /tickets
+            Method: POST
+        TicketsPatch:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PortalApi
+            Path: /tickets/{id}
+            Method: PATCH
+        UsersGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PortalApi
+            Path: /admin/users
+            Method: GET
+        UsersPost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PortalApi
+            Path: /admin/users
+            Method: POST
+        UsersPatch:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PortalApi
+            Path: /admin/users/{username}
+            Method: PATCH
+        UsersDelete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PortalApi
+            Path: /admin/users/{username}
+            Method: DELETE
+
+  TicketsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: customerEmail
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: customerEmail-index
+          KeySchema:
+            - AttributeName: customerEmail
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+Outputs:
+  ApiUrl:
+    Description: Unified portal API base URL
+    Value: !Sub https://${PortalApi}.execute-api.${AWS::Region}.amazonaws.com
+  TicketsTableName:
+    Value: !Ref TicketsTable
