@@ -78,12 +78,23 @@ function LoginScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [loginError, setLoginError] = useState('')
-  const [challenge, setChallenge] = useState('')
-  const [newPassword, setNewPassword] = useState('')
- const [confirmNewPassword, setConfirmNewPassword] = useState('')
-  
+
+  const [submitting, setSubmitting] =
+    useState(false)
+
+  const [loginError, setLoginError] =
+    useState('')
+
+  const [challenge, setChallenge] =
+    useState('')
+
+  const [newPassword, setNewPassword] =
+    useState('')
+
+  const [confirmNewPassword, setConfirmNewPassword] =
+    useState('')
+
+
   const submit = async (e) => {
     e.preventDefault()
 
@@ -100,7 +111,7 @@ function LoginScreen() {
 
     try {
       const nextStep = await login(
-        email,
+        email.trim(),
         password
       )
 
@@ -125,7 +136,6 @@ function LoginScreen() {
       window.location.reload()
 
     } catch (error) {
-
       const message =
         error?.message ||
         'Unable to sign in. Please check your email address and password.'
@@ -175,51 +185,43 @@ function LoginScreen() {
       return
     }
 
+    if (!confirmNewPassword) {
+      setLoginError(
+        'Please confirm your new password.'
+      )
+      return
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setLoginError(
+        'New password and confirm password do not match.'
+      )
+      return
+    }
+
     setSubmitting(true)
 
     try {
+      await confirmSignIn({
+        challengeResponse: newPassword,
+      })
 
-      const handleNewPassword = async (e) => {
-  e.preventDefault()
+      setChallenge('')
+      setNewPassword('')
+      setConfirmNewPassword('')
 
-  setLoginError('')
+      window.location.reload()
 
-  if (!newPassword) {
-    setLoginError('Please enter a new password.')
-    return
+    } catch (error) {
+      setLoginError(
+        error?.message ||
+        'Unable to set the new password. Please try again.'
+      )
+
+    } finally {
+      setSubmitting(false)
+    }
   }
-
-  if (!confirmNewPassword) {
-    setLoginError('Please confirm your new password.')
-    return
-  }
-
-  if (newPassword !== confirmNewPassword) {
-    setLoginError('New password and confirm password do not match.')
-    return
-  }
-
-  try {
-    setSubmitting(true)
-
-    await confirmSignIn({
-      challengeResponse: newPassword,
-    })
-
-    setChallenge('')
-    setNewPassword('')
-    setConfirmNewPassword('')
-
-    window.location.reload()
-  } catch (error) {
-    setLoginError(
-      error?.message ||
-      'Unable to set the new password. Please try again.'
-    )
-  } finally {
-    setSubmitting(false)
-  }
-}
 
 
   return (
@@ -230,6 +232,7 @@ function LoginScreen() {
         <div className="login-brand">
           <Logo />
         </div>
+
 
         <div className="login-copy">
 
@@ -279,6 +282,25 @@ function LoginScreen() {
                 placeholder="Enter a new password"
                 autoComplete="new-password"
                 autoFocus
+                required
+              />
+
+            </label>
+
+
+            <label>
+              Confirm New Password
+
+              <input
+                type="password"
+                value={confirmNewPassword}
+                onChange={(e) =>
+                  setConfirmNewPassword(
+                    e.target.value
+                  )
+                }
+                placeholder="Confirm your new password"
+                autoComplete="new-password"
                 required
               />
 
@@ -377,6 +399,7 @@ function LoginScreen() {
             </button>
 
           </form>
+
         )}
 
       </div>
