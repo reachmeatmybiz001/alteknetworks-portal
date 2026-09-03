@@ -174,7 +174,7 @@ function App() {
   if (user === undefined) return <div className="loading-screen">Loading secure portal…</div>
   if (!user) return <LoginScreen />
 
-  const isAdmin = user.groups.includes('Admins')
+  const isAdmin = user.groups.some(group => ['SupportAdmins', 'UserAdmins', 'SuperAdmins'].includes(group))
 
   const handleCreate = async (payload) => {
     setError('')
