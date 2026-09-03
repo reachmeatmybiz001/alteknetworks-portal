@@ -82,7 +82,8 @@ function LoginScreen() {
   const [loginError, setLoginError] = useState('')
   const [challenge, setChallenge] = useState('')
   const [newPassword, setNewPassword] = useState('')
-
+ const [confirmNewPassword, setConfirmNewPassword] = useState('')
+  
   const submit = async (e) => {
     e.preventDefault()
 
@@ -178,26 +179,47 @@ function LoginScreen() {
 
     try {
 
-      await confirmSignIn({
-        challengeResponse: newPassword,
-      })
+      const handleNewPassword = async (e) => {
+  e.preventDefault()
 
-      setChallenge('')
-      setNewPassword('')
+  setLoginError('')
 
-      window.location.reload()
-
-    } catch (error) {
-
-      setLoginError(
-        error?.message ||
-        'Unable to set the new password. Please try again.'
-      )
-
-    } finally {
-      setSubmitting(false)
-    }
+  if (!newPassword) {
+    setLoginError('Please enter a new password.')
+    return
   }
+
+  if (!confirmNewPassword) {
+    setLoginError('Please confirm your new password.')
+    return
+  }
+
+  if (newPassword !== confirmNewPassword) {
+    setLoginError('New password and confirm password do not match.')
+    return
+  }
+
+  try {
+    setSubmitting(true)
+
+    await confirmSignIn({
+      challengeResponse: newPassword,
+    })
+
+    setChallenge('')
+    setNewPassword('')
+    setConfirmNewPassword('')
+
+    window.location.reload()
+  } catch (error) {
+    setLoginError(
+      error?.message ||
+      'Unable to set the new password. Please try again.'
+    )
+  } finally {
+    setSubmitting(false)
+  }
+}
 
 
   return (
