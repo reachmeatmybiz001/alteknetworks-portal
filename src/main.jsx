@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { currentUser, authEvents, login, logout, confirmSignIn } from './auth'
 import { createTicket, listTickets, updateTicket } from './ticketService'
+import { listUsers, createUser, updateUser, deleteUser, USER_ROLES, canManageUserRole } from './userService'
 import './styles.css'
 
 const categories = ['Networking', 'Security', 'CCTV & Surveillance', 'Cloud Infrastructure', 'End User Computing', 'Enterprise Computing', 'Data Center', 'AMC / Support', 'Other']
