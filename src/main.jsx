@@ -1942,11 +1942,13 @@ function UserAdministration({
     try {
 
       await onCreate({
-        email:
-          form.email.trim()
-            .toLowerCase(),
-        role: form.role,
-      })
+  email:
+    form.email.trim()
+      .toLowerCase(),
+  role: form.role,
+  temporaryPassword:
+    form.temporaryPassword,
+})
 
       resetForm()
       setShowCreate(false)
