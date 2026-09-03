@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { Amplify } from 'aws-amplify'
-import { signIn, signOut, getCurrentUser } from 'aws-amplify/auth'
+import { signIn, signOut, getCurrentUser, confirmSignIn } from 'aws-amplify/auth'
 import { config } from './config'
 import { currentAuth, isAdminRole, primaryRole, ROLES } from './auth'
 import * as api from './api'
