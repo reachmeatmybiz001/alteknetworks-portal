@@ -391,7 +391,6 @@ function LoginScreen() {
 ========================================================= */
 
 function App() {
-
   const [user, setUser] =
     useState(undefined)
 
