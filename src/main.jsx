@@ -34,6 +34,8 @@ function App() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [challenge, setChallenge] = useState('')
+  const [newPassword, setNewPassword] = useState('')
 
   useEffect(() => {
     getCurrentUser().then(() => currentAuth()).then(setAuth).catch(() => {}).finally(() => setLoading(false))
