@@ -2065,7 +2065,24 @@ function UserAdministration({
             <label>
 
               Role
-
+            <label>
+          Temporary Password
+          <input
+          type="password"
+          value={form.temporaryPassword}
+          onChange={(e) =>
+          setForm({
+        ...form,
+        temporaryPassword: e.target.value,
+      })
+    }
+    placeholder="Enter temporary password"
+    required
+  />
+  <small>
+    User will be required to change this password after first login.
+  </small>
+</label>
               <select
                 value={form.role}
                 onChange={(e) =>
