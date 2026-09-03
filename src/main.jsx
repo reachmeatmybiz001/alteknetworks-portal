@@ -419,7 +419,7 @@ function App() {
   const [notice, setNotice] =
     useState('')
 
-
+}
   const refreshUser = async () => {
     setUser(await currentUser())
   }
