@@ -58,7 +58,6 @@ function LoginScreen() {
         <div className="login-copy">
           <span className="eyebrow">CUSTOMER SUPPORT PORTAL</span>
           <h1>Welcome to your IT support portal</h1>
-          <p>Sign in to raise service requests, track incidents and stay connected with the ALTEKNETWORKS support team.</p>
         </div>
 
         {loginError && <div className="login-error" role="alert">{loginError}</div>}
