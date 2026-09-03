@@ -64,6 +64,22 @@ function App() {
     setLoading(false)
   }
 }
+  async function handleNewPassword(event) {
+  event.preventDefault()
+  setLoginError('')
+  setLoading(true)
+
+  try {
+    await confirmSignIn({ challengeResponse: newPassword })
+    setChallenge('')
+    setNewPassword('')
+    setAuth(await currentAuth())
+  } catch (error) {
+    setLoginError(error?.message || 'Unable to set the new password.')
+  } finally {
+    setLoading(false)
+  }
+}
 
   async function handleLogout() {
     await signOut()
@@ -71,11 +87,11 @@ function App() {
   }
 
   if (loading) return <div className="center-screen"><div className="loader" />Loading portal…</div>
-  if (!auth) return <Login email={email} password={password} showPassword={showPassword} setEmail={setEmail} setPassword={setPassword} setShowPassword={setShowPassword} error={loginError} onSubmit={handleLogin} />
+  if (!auth) return <Login email={email} password={password} showPassword={showPassword} setEmail={setEmail} setPassword={setPassword} setShowPassword={setShowPassword} error={loginError} onSubmit={handleLogin} challenge={challenge} newPassword={newPassword} setNewPassword={setNewPassword} onNewPassword={handleNewPassword} />
   return <Portal auth={auth} onLogout={handleLogout} />
 }
 
-function Login({ email, password, showPassword, setEmail, setPassword, setShowPassword, error, onSubmit }) {
+function Login({ email, password, showPassword, setEmail, setPassword, setShowPassword, error, onSubmit, challenge, newPassword, setNewPassword, onNewPassword }) {
   return <div className="login-page">
     <div className="watermark">ALTEKNETWORKS IT SERVICES</div>
     <div className="login-card">
@@ -83,17 +99,43 @@ function Login({ email, password, showPassword, setEmail, setPassword, setShowPa
       <div className="brand-sub">IT SERVICES</div>
       <h1>CUSTOMER SUPPORT PORTAL</h1>
       <p className="muted">Secure access for customers and authorized administrators.</p>
-      <form onSubmit={onSubmit}>
-        <label>Email</label>
-        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="username" required />
-        <label>Password</label>
-        <div className="password-wrap">
-          <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" required />
-          <button type="button" className="show-btn" onClick={() => setShowPassword(v => !v)}>{showPassword ? 'Hide' : 'Show'}</button>
-        </div>
-        {error && <div className="error">{error}</div>}
-        <button className="primary wide" type="submit">Sign In</button>
-      </form>
+      {challenge === 'NEW_PASSWORD_REQUIRED' ? (
+  <form onSubmit={onNewPassword}>
+    <label>New Password</label>
+    <input
+      type="password"
+      value={newPassword}
+      onChange={e => setNewPassword(e.target.value)}
+      autoComplete="new-password"
+      required
+    />
+
+    {error && <div className="error">{error}</div>}
+
+    <button className="primary wide" type="submit">
+      Set New Password
+    </button>
+  </form>
+) : (
+  <form onSubmit={onSubmit}>
+    <label>Email</label>
+    <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="username" required />
+
+    <label>Password</label>
+    <div className="password-wrap">
+      <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" required />
+      <button type="button" className="show-btn" onClick={() => setShowPassword(v => !v)}>
+        {showPassword ? 'Hide' : 'Show'}
+      </button>
+    </div>
+
+    {error && <div className="error">{error}</div>}
+
+    <button className="primary wide" type="submit">
+      Sign In
+    </button>
+  </form>
+)}
     </div>
   </div>
 }
