@@ -699,11 +699,22 @@ function App() {
         changes
       )
 
-      setNotice(
-        'User updated successfully.'
-      )
+      if (changes?.resetPassword) {
+        setNotice(
+          'Temporary password set successfully. The user must change it at next login.'
+        )
+      } else if (changes?.enabled === false) {
+        setNotice('User disabled successfully.')
+      } else if (changes?.enabled === true) {
+        setNotice('User enabled successfully.')
+      } else if (changes?.role) {
+        setNotice('User role updated successfully.')
+      } else {
+        setNotice('User updated successfully.')
+      }
 
       await loadUsers()
+      return true
 
     } catch (error) {
 
@@ -711,6 +722,7 @@ function App() {
         error?.message ||
         'Unable to update user.'
       )
+      return false
     }
   }
 
@@ -1932,92 +1944,69 @@ function UserAdministration({
   onDelete,
 }) {
 
-  const [
-    showCreate,
-    setShowCreate,
-  ] = useState(false)
+  const [showCreate, setShowCreate] =
+    useState(false)
 
+  const [saving, setSaving] =
+    useState(false)
 
-  const [
-    saving,
-    setSaving,
-  ] = useState(false)
+  const [form, setForm] =
+    useState({
+      email: '',
+      role: 'Customers',
+      temporaryPassword: '',
+    })
 
-
-  const [
-    form,
-    setForm,
-  ] = useState({
-    email: '',
-    role: 'Customers',
-  })
-
-
-  const [
-    actionUser,
-    setActionUser,
-  ] = useState(null)
-
+  const [actionUser, setActionUser] =
+    useState(null)
 
   const resetForm = () => {
-
     setForm({
       email: '',
       role: 'Customers',
+      temporaryPassword: '',
     })
-
   }
 
-
-  const submitCreate = async (
-    e
-  ) => {
-
+  const submitCreate = async (e) => {
     e.preventDefault()
 
     if (!form.email.trim()) {
       return
     }
 
+    if (!form.temporaryPassword) {
+      return
+    }
+
     setSaving(true)
 
     try {
-
       await onCreate({
-  email:
-    form.email.trim()
-      .toLowerCase(),
-  role: form.role,
-  temporaryPassword:
-    form.temporaryPassword,
-})
+        email: form.email.trim().toLowerCase(),
+        role: form.role,
+        temporaryPassword: form.temporaryPassword,
+      })
 
       resetForm()
       setShowCreate(false)
-
     } finally {
-
       setSaving(false)
     }
   }
 
-
-  const canCreateRole =
-    (role) =>
-      canManageUserRole(
-        actorRole,
-        role
-      )
-
+  const canCreateRole = (role) =>
+    canManageUserRole(
+      actorRole,
+      role
+    )
 
   return (
-
     <section>
 
       <div className="section-head">
 
         <div>
-
           <span className="eyebrow">
             IDENTITY MANAGEMENT
           </span>
@@ -2030,9 +2019,7 @@ function UserAdministration({
             Create and manage customer and
             administrator portal accounts.
           </p>
-
         </div>
-
 
         <div
           style={{
@@ -2040,7 +2027,6 @@ function UserAdministration({
             gap: '10px',
           }}
         >
-
           <button
             className="secondary-button"
             onClick={onLoad}
@@ -2050,7 +2036,6 @@ function UserAdministration({
               ? 'Refreshing…'
               : 'Refresh'}
           </button>
-
 
           <button
             className="primary-button"
@@ -2062,14 +2047,10 @@ function UserAdministration({
           >
             + Create User
           </button>
-
         </div>
-
       </div>
 
-
       {showCreate && (
-
         <form
           className="form-card"
           onSubmit={submitCreate}
@@ -2077,72 +2058,41 @@ function UserAdministration({
             marginBottom: '24px',
           }}
         >
-
           <h3>
             Create portal user
           </h3>
 
-
           <div className="form-grid">
-
             <label>
-
               Email Address
-
               <input
                 type="email"
                 value={form.email}
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    email:
-                      e.target.value,
+                    email: e.target.value,
                   })
                 }
                 placeholder="customer@company.com"
                 required
               />
-
             </label>
 
-
             <label>
-
               Role
-            <label>
-          Temporary Password
-          <input
-          type="password"
-          value={form.temporaryPassword}
-          onChange={(e) =>
-          setForm({
-        ...form,
-        temporaryPassword: e.target.value,
-      })
-    }
-    placeholder="Enter temporary password"
-    required
-  />
-  <small>
-    User will be required to change this password after first login.
-  </small>
-</label>
               <select
                 value={form.role}
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    role:
-                      e.target.value,
+                    role: e.target.value,
                   })
                 }
               >
-
                 {USER_ROLES.map(
                   (role) =>
-                    canCreateRole(
-                      role
-                    ) && (
+                    canCreateRole(role) && (
                       <option
                         key={role}
                         value={role}
@@ -2151,29 +2101,42 @@ function UserAdministration({
                       </option>
                     )
                 )}
-
               </select>
-
             </label>
 
+            <label>
+              Temporary Password
+              <input
+                type="password"
+                value={form.temporaryPassword}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    temporaryPassword:
+                      e.target.value,
+                  })
+                }
+                placeholder="Enter temporary password"
+                autoComplete="new-password"
+                required
+              />
+              <small>
+                User will be required to change this password after first login.
+              </small>
+            </label>
           </div>
 
-
           <div className="form-actions">
-
             <button
               type="button"
               className="secondary-button"
               onClick={() => {
-
                 resetForm()
                 setShowCreate(false)
-
               }}
             >
               Cancel
             </button>
-
 
             <button
               className="primary-button"
@@ -2183,96 +2146,45 @@ function UserAdministration({
                 ? 'Creating…'
                 : 'Create User'}
             </button>
-
           </div>
-
         </form>
-
       )}
 
-
       {loading ? (
-
         <div className="empty-card">
           Loading users…
         </div>
-
       ) : users.length === 0 ? (
-
         <div className="empty-card">
           No portal users found.
         </div>
-
       ) : (
-
         <div className="table-card">
-
           <div className="ticket-table">
-
             <div className="table-row table-head">
-
-              <span>
-                Email
-              </span>
-
-              <span>
-                Role
-              </span>
-
-              <span>
-                Status
-              </span>
-
-              <span>
-                Cognito Status
-              </span>
-
-              <span>
-                Created
-              </span>
-
-              <span>
-                Action
-              </span>
-
+              <span>Email</span>
+              <span>Role</span>
+              <span>Status</span>
+              <span>Cognito Status</span>
+              <span>Created</span>
+              <span>Action</span>
             </div>
 
-
-            {users.map(
-              (item) => (
-
-                <UserRow
-                  key={
-                    item.username
-                  }
-                  user={item}
-                  actorRole={actorRole}
-                  isSuperAdmin={
-                    isSuperAdmin
-                  }
-                  actionUser={
-                    actionUser
-                  }
-                  setActionUser={
-                    setActionUser
-                  }
-                  onUpdate={
-                    onUpdate
-                  }
-                  onDelete={
-                    onDelete
-                  }
-                />
-
-              )
-            )}
-
+            {users.map((item) => (
+              <UserRow
+                key={item.username}
+                user={item}
+                actorRole={actorRole}
+                isSuperAdmin={isSuperAdmin}
+                actionUser={actionUser}
+                setActionUser={setActionUser}
+                onUpdate={onUpdate}
+                onDelete={onDelete}
+              />
+            ))}
           </div>
-
         </div>
-
       )}
-
     </section>
   )
 }
@@ -2290,7 +2202,9 @@ function UserRow({
   setActionUser,
   onUpdate,
   onDelete,
-}) {  const [showResetPassword, setShowResetPassword] =
+}) {
+
+  const [showResetPassword, setShowResetPassword] =
     useState(false)
 
   const [temporaryPassword, setTemporaryPassword] =
@@ -2302,18 +2216,13 @@ function UserRow({
   const [resetPasswordError, setResetPasswordError] =
     useState('')
 
+  const [resettingPassword, setResettingPassword] =
+    useState(false)
+
   const userRole =
     user.role ||
     user.groups?.[0] ||
     'Customers'
-
-
-  const canChangeRole =
-    canManageUserRole(
-      actorRole,
-      userRole
-    )
-
 
   const canEditTarget =
     actorRole === 'SuperAdmins' ||
@@ -2322,39 +2231,81 @@ function UserRow({
       userRole === 'Customers'
     )
 
-
   const isEnabled =
     user.enabled !== false
 
+  const closeResetForm = () => {
+    setShowResetPassword(false)
+    setTemporaryPassword('')
+    setConfirmTemporaryPassword('')
+    setResetPasswordError('')
+  }
+
+  const submitResetPassword = async () => {
+    setResetPasswordError('')
+
+    if (!temporaryPassword) {
+      setResetPasswordError(
+        'Please enter a temporary password.'
+      )
+      return
+    }
+
+    if (!confirmTemporaryPassword) {
+      setResetPasswordError(
+        'Please confirm the temporary password.'
+      )
+      return
+    }
+
+    if (
+      temporaryPassword !==
+      confirmTemporaryPassword
+    ) {
+      setResetPasswordError(
+        'Temporary passwords do not match.'
+      )
+      return
+    }
+
+    setResettingPassword(true)
+
+    try {
+      const success = await onUpdate(
+        user.username,
+        {
+          resetPassword: true,
+          temporaryPassword,
+        }
+      )
+
+      if (success !== false) {
+        closeResetForm()
+      }
+    } finally {
+      setResettingPassword(false)
+    }
+  }
 
   return (
-
     <div className="table-row">
 
       <span>
-
         <strong>
           {user.email}
         </strong>
-
         <small>
           {user.username}
         </small>
-
       </span>
 
-
       <span>
-
         <strong>
           {userRole}
         </strong>
-
       </span>
 
-
       <span>
-
         <span
           className={
             isEnabled
@@ -2366,37 +2317,26 @@ function UserRow({
             ? 'Enabled'
             : 'Disabled'}
         </span>
-
       </span>
 
-
       <span>
-
-        {user.status ||
-          '—'}
-
+        {user.status || '—'}
       </span>
 
-
       <span>
-
         {user.createdAt
           ? new Date(
               user.createdAt
             ).toLocaleDateString()
           : '—'}
-
       </span>
 
-
       <span>
-
         <button
           className="secondary-button"
           onClick={() =>
             setActionUser(
-              actionUser ===
-                user.username
+              actionUser === user.username
                 ? null
                 : user.username
             )
@@ -2404,39 +2344,29 @@ function UserRow({
         >
           Manage
         </button>
-
       </span>
 
-
-      {actionUser ===
-        user.username && (
-
+      {actionUser === user.username && (
         <div
           style={{
-            gridColumn:
-              '1 / -1',
-            padding:
-              '16px 0',
-            display:
-              'flex',
+            gridColumn: '1 / -1',
+            padding: '16px 0',
+            display: 'flex',
             gap: '10px',
-            flexWrap:
-              'wrap',
-            alignItems:
-              'center',
+            flexWrap: 'wrap',
+            alignItems: 'flex-start',
           }}
         >
 
           {canEditTarget && (
-
             <button
+              type="button"
               className="secondary-button"
               onClick={() =>
                 onUpdate(
                   user.username,
                   {
-                    enabled:
-                      !isEnabled,
+                    enabled: !isEnabled,
                   }
                 )
               }
@@ -2445,87 +2375,146 @@ function UserRow({
                 ? 'Disable User'
                 : 'Enable User'}
             </button>
-
           )}
 
+          {canEditTarget && (
+            <div
+              style={{
+                flexBasis: '100%',
+              }}
+            >
+              {!showResetPassword ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setResetPasswordError('')
+                    setTemporaryPassword('')
+                    setConfirmTemporaryPassword('')
+                    setShowResetPassword(true)
+                  }}
+                >
+                  Reset Password
+                </button>
+              ) : (
+                <div
+                  className="form-card"
+                  style={{
+                    marginTop: '10px',
+                    maxWidth: '560px',
+                  }}
+                >
+                  <h3>
+                    Reset Password
+                  </h3>
 
-         {canEditTarget && (
+                  <p>
+                    Set a temporary password for {user.email}. The user will be required to create a new password at next login.
+                  </p>
 
-  <button
-    className="secondary-button"
-    onClick={() => {
-      const temporaryPassword =
-        window.prompt(
-          `Enter a temporary password for ${user.email}:`
-        )
+                  <div className="form-grid">
+                    <label>
+                      Temporary Password
+                      <input
+                        type="password"
+                        value={temporaryPassword}
+                        onChange={(e) => {
+                          setTemporaryPassword(e.target.value)
+                          setResetPasswordError('')
+                        }}
+                        placeholder="Enter temporary password"
+                        autoComplete="new-password"
+                        autoFocus
+                        required
+                      />
+                    </label>
 
-      if (!temporaryPassword) {
-        return
-      }
+                    <label>
+                      Confirm Temporary Password
+                      <input
+                        type="password"
+                        value={confirmTemporaryPassword}
+                        onChange={(e) => {
+                          setConfirmTemporaryPassword(e.target.value)
+                          setResetPasswordError('')
+                        }}
+                        placeholder="Confirm temporary password"
+                        autoComplete="new-password"
+                        required
+                      />
+                    </label>
+                  </div>
 
-      onUpdate(
-        user.username,
-        {
-          resetPassword: true,
-          temporaryPassword,
-        }
-      )
-    }}
-  >
-    Reset Password
-  </button>
+                  {resetPasswordError && (
+                    <div
+                      className="login-error"
+                      role="alert"
+                      style={{
+                        marginTop: '12px',
+                      }}
+                    >
+                      {resetPasswordError}
+                    </div>
+                  )}
 
-)}
+                  <div className="form-actions">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={closeResetForm}
+                      disabled={resettingPassword}
+                    >
+                      Cancel
+                    </button>
 
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={submitResetPassword}
+                      disabled={resettingPassword}
+                    >
+                      {resettingPassword
+                        ? 'Resetting…'
+                        : 'Set Temporary Password'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {isSuperAdmin && (
-
             <select
               value={userRole}
               onChange={(e) => {
+                const newRole = e.target.value
 
-                const newRole =
-                  e.target.value
-
-                if (
-                  newRole ===
-                  userRole
-                ) {
+                if (newRole === userRole) {
                   return
                 }
 
                 onUpdate(
                   user.username,
                   {
-                    role:
-                      newRole,
+                    role: newRole,
                   }
                 )
-
               }}
             >
-
-              {USER_ROLES.map(
-                (role) => (
-
-                  <option
-                    key={role}
-                    value={role}
-                  >
-                    {role}
-                  </option>
-
-                )
-              )}
-
+              {USER_ROLES.map((role) => (
+                <option
+                  key={role}
+                  value={role}
+                >
+                  {role}
+                </option>
+              ))}
             </select>
-
           )}
 
-
           {isSuperAdmin && (
-
             <button
+              type="button"
               className="secondary-button"
               onClick={() =>
                 onDelete(
@@ -2536,13 +2525,9 @@ function UserRow({
             >
               Delete User
             </button>
-
           )}
-
         </div>
-
       )}
-
     </div>
   )
 }
