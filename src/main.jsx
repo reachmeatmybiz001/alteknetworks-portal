@@ -2439,24 +2439,33 @@ function UserRow({
           )}
 
 
-          {canEditTarget && (
+         {canEditTarget && (
 
-            <button
-              className="secondary-button"
-              onClick={() =>
-                onUpdate(
-                  user.username,
-                  {
-                    resetPassword:
-                      true,
-                  }
-                )
-              }
-            >
-              Reset Password
-            </button>
+  <button
+    className="secondary-button"
+    onClick={() => {
+      const temporaryPassword =
+        window.prompt(
+          `Enter a temporary password for ${user.email}:`
+        )
 
-          )}
+      if (!temporaryPassword) {
+        return
+      }
+
+      onUpdate(
+        user.username,
+        {
+          resetPassword: true,
+          temporaryPassword,
+        }
+      )
+    }}
+  >
+    Reset Password
+  </button>
+
+)}
 
 
           {isSuperAdmin && (
