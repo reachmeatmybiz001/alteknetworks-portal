@@ -2290,7 +2290,17 @@ function UserRow({
   setActionUser,
   onUpdate,
   onDelete,
-}) {
+}) {  const [showResetPassword, setShowResetPassword] =
+    useState(false)
+
+  const [temporaryPassword, setTemporaryPassword] =
+    useState('')
+
+  const [confirmTemporaryPassword, setConfirmTemporaryPassword] =
+    useState('')
+
+  const [resetPasswordError, setResetPasswordError] =
+    useState('')
 
   const userRole =
     user.role ||
