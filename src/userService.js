@@ -11,7 +11,13 @@ export {
   deleteUser,
 }
 
-export async function updateUser(username, changes = {}) {
+export const USER_ROLES = [
+  'Customers',
+  'SupportAdmins',
+  'SuperAdmins',
+]
+
+export function updateUser(username, changes = {}) {
   if (changes.enabled === true) {
     return apiUpdateUser(username, {
       action: 'enable',
@@ -40,13 +46,6 @@ export async function updateUser(username, changes = {}) {
   return apiUpdateUser(username, changes)
 }
 
-export const USER_ROLES = [
-  'Customers',
-  'SupportAdmins',
-  'UserAdmins',
-  'SuperAdmins',
-]
-
 export function isCustomerRole(role) {
   return role === 'Customers'
 }
@@ -54,15 +53,17 @@ export function isCustomerRole(role) {
 export function isAdministratorRole(role) {
   return [
     'SupportAdmins',
-    'UserAdmins',
     'SuperAdmins',
   ].includes(role)
 }
 
 export function canManageUserRole(actorRole, targetRole) {
-  if (actorRole === 'SuperAdmins') return true
+  if (actorRole !== 'SuperAdmins') {
+    return false
+  }
 
-  if (actorRole !== 'UserAdmins') return false
-
-  return targetRole === 'Customers'
+  return [
+    'Customers',
+    'SupportAdmins',
+  ].includes(targetRole)
 }
