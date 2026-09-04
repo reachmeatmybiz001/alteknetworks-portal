@@ -65,5 +65,6 @@ export function canManageUserRole(actorRole, targetRole) {
   return [
     'Customers',
     'SupportAdmins',
+    'SuperAdmins',
   ].includes(targetRole)
 }
