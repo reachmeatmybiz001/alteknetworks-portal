@@ -1,0 +1,11 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://portal.alteknetworks.com",
+      "https://main.d2t3kgkdxgf7ga.amplifyapp.com"
+    ],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag", "x-amz-checksum-crc32", "x-amz-checksum-crc32c", "x-amz-checksum-sha1", "x-amz-checksum-sha256"]
+  }
+]
