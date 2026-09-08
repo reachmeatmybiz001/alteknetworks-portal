@@ -106,5 +106,3 @@ Deploy the backend with `backend/template.yaml` so the `ATTACHMENTS_BUCKET` envi
 ## Latest fixes
 
 This package includes the ticket identity and attachment fixes. Deploy both the `backend/` Lambda/SAM stack and the Amplify frontend. The backend is required for legacy UUID-to-email resolution and S3 presigned attachment uploads.
-Deployment refresh - September 2026
-Auto deployment test - September 2026
