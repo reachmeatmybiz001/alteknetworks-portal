@@ -197,7 +197,8 @@ async function displayIdentityForStoredValue(value) {
     }
   } catch {}
 
-  return raw
+  // Do not expose raw Cognito UUID/sub values to the portal.
+  return 'Portal user'
 }
 
 async function actorIdentity(event) {
