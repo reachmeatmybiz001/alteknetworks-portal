@@ -150,8 +150,44 @@ async function displayIdentityForStoredValue(value) {
   const raw = String(value || '').trim()
   if (!raw) return ''
   if (!looksLikeUuid(raw)) return raw
+
   const cacheKey = raw.toLowerCase()
   if (actorLookupCache.has(cacheKey)) return actorLookupCache.get(cacheKey)
+
+  // First try the value as the Cognito username. Older tickets may have
+  // stored the Cognito username, which can itself be a UUID.
+  try {
+    const direct = await cognito.send(new AdminGetUserCommand({
+      UserPoolId: USER_POOL_ID,
+      Username: raw,
+    }))
+    const email = (direct.UserAttributes || []).find((item) => item.Name === 'email')?.Value
+    const display = email || direct.Username || ''
+    if (display) {
+      actorLookupCache.set(cacheKey, display)
+      return display
+    }
+  } catch {}
+
+  // If the stored UUID is the Cognito sub, query Cognito directly by sub.
+  try {
+    const result = await cognito.send(new ListUsersCommand({
+      UserPoolId: USER_POOL_ID,
+      Filter: `sub = \"${raw}\"`,
+      Limit: 1,
+    }))
+    const user = result.Users?.[0]
+    if (user) {
+      const email = (user.Attributes || []).find((item) => item.Name === 'email')?.Value
+      const display = email || user.Username || ''
+      if (display) {
+        actorLookupCache.set(cacheKey, display)
+        return display
+      }
+    }
+  } catch {}
+
+  // Final fallback: build the complete identity map.
   try {
     const map = await buildCognitoIdentityMap()
     const display = map.get(cacheKey)
@@ -160,6 +196,7 @@ async function displayIdentityForStoredValue(value) {
       return display
     }
   } catch {}
+
   return raw
 }
 
@@ -502,6 +539,63 @@ async function createAttachmentUploadUrl(event, ticketIdValue) {
   })
 }
 
+
+async function uploadAttachmentViaApi(event, ticketIdValue) {
+  if (!ATTACHMENTS_BUCKET) {
+    throw Object.assign(new Error('Attachment storage is not configured'), { statusCode: 500 })
+  }
+
+  const currentRole = role(event)
+  const actorEmail = await actorIdentity(event)
+  const result = await ddb.send(new GetCommand({ TableName: TICKETS_TABLE, Key: { id: ticketIdValue } }))
+  const ticket = result.Item
+  if (!ticket) throw Object.assign(new Error('Ticket not found'), { statusCode: 404 })
+
+  const ticketCustomerIdentity = await displayIdentityForStoredValue(ticket.customerEmail)
+  const isOwner = String(ticketCustomerIdentity || ticket.customerEmail || '').toLowerCase() === actorEmail
+  if (currentRole === 'Customers' && !isOwner) {
+    throw Object.assign(new Error('Customers can only attach files to their own tickets'), { statusCode: 403 })
+  }
+  if (ticket.status === 'Closed') {
+    throw Object.assign(new Error('Closed tickets cannot be modified'), { statusCode: 400 })
+  }
+
+  const body = parseBody(event)
+  const fileName = String(body.fileName || body.name || '').trim()
+  const contentType = String(body.contentType || 'application/octet-stream').trim()
+  const base64 = String(body.dataBase64 || '').trim()
+  if (!fileName || !base64) throw Object.assign(new Error('File name and file data are required'), { statusCode: 400 })
+
+  const estimatedSize = Math.floor((base64.length * 3) / 4)
+  if (estimatedSize > 7 * 1024 * 1024) {
+    throw Object.assign(new Error('Direct upload limit is 7 MB. Please deploy the S3 CORS configuration and use the normal upload for larger files.'), { statusCode: 413 })
+  }
+
+  const buffer = Buffer.from(base64, 'base64')
+  if (buffer.length > 7 * 1024 * 1024) throw Object.assign(new Error('Direct upload limit is 7 MB'), { statusCode: 413 })
+
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const attachmentId = `ATT-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+  const key = `tickets/${ticketIdValue}/${attachmentId}-${safeName}`
+  await s3.send(new PutObjectCommand({
+    Bucket: ATTACHMENTS_BUCKET,
+    Key: key,
+    Body: buffer,
+    ContentType: contentType,
+  }))
+
+  const attachment = {
+    id: attachmentId,
+    key,
+    name: fileName,
+    contentType,
+    size: buffer.length,
+    uploadedBy: actorEmail || actorUsername(event),
+    uploadedAt: new Date().toISOString(),
+  }
+  return updateTicket(event, ticketIdValue, attachment)
+}
+
 async function recordAttachment(event, ticketIdValue) {
   const body = parseBody(event)
   const attachment = body.attachment
@@ -673,6 +767,11 @@ export async function handler(event) {
     const attachmentUploadMatch = path.match(/\/tickets\/([^/]+)\/attachments\/upload-url$/)
     if (method === 'POST' && attachmentUploadMatch) {
       return createAttachmentUploadUrl(event, decodeURIComponent(attachmentUploadMatch[1]))
+    }
+
+    const attachmentDirectMatch = path.match(/\/tickets\/([^/]+)\/attachments\/upload$/)
+    if (method === 'POST' && attachmentDirectMatch) {
+      return uploadAttachmentViaApi(event, decodeURIComponent(attachmentDirectMatch[1]))
     }
 
     const attachmentDownloadMatch = path.match(/\/tickets\/([^/]+)\/attachments\/([^/]+)\/download-url$/)

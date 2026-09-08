@@ -120,6 +120,12 @@ Resources:
             ApiId: !Ref PortalApi
             Path: /tickets/{id}/attachments
             Method: POST
+        TicketAttachmentDirectUpload:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PortalApi
+            Path: /tickets/{id}/attachments/upload
+            Method: POST
         TicketAttachmentDownload:
           Type: HttpApi
           Properties:
