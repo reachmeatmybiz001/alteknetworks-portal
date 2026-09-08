@@ -1,0 +1,9 @@
+*** Begin Patch
+*** Update File: backend/index.mjs
+@@
+-  return raw
++  // Do not leak Cognito sub/user UUIDs to the UI when an older ticket
++  // contains an identity that can no longer be resolved.
++  return 'Portal user'
+ }
+*** End Patch
