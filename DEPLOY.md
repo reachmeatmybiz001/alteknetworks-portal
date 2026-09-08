@@ -1,127 +1,109 @@
-# ALTEKNETWORKS Portal – Ready-to-Deploy Fix
+# ALTEKNETWORKS Portal – Attachment & Identity Fix Pack
 
-This package fixes the two issues currently visible in the ticket processing panel:
+This fix pack is for the existing repository:
 
-1. Cognito UUIDs are never displayed as Customer / Created by / Updated by / comment author.
-2. Attachments up to 7 MB are uploaded through the authenticated Lambda/API path first, avoiding browser-to-S3 CORS failures.
-3. Attachments above 7 MB continue to use the presigned S3 path.
-4. The attachment is recorded in DynamoDB only after the S3 upload succeeds.
-5. Browser/network errors are converted into useful user-facing messages.
+`reachmeatmybiz001/alteknetworks-portal`
 
-## Files to replace
+## Fixes included
 
-Copy:
+1. Prevent Cognito UUID/sub values from being displayed as Customer, Created by, Updated by, or comment author.
+2. Keep the existing direct API/Lambda upload path for files <= 7 MB.
+3. Keep the presigned S3 upload path for files > 7 MB.
+4. Improve attachment upload error messages.
+5. Preserve authenticated attachment downloads.
 
-- `src/ticketService.js` → replace the existing file completely.
-- Apply `src/main.jsx.patch` to the existing `src/main.jsx`.
-- Apply `backend/index.mjs.patch` to the existing `backend/index.mjs`.
+## Confirmed API Gateway
 
-The backend already contains the authenticated direct-upload endpoint:
-`POST /tickets/{ticketId}/attachments/upload`
+API: `ALTEKNET-UnifiedPortal-API`
+API ID: `ms9anew1xc`
+Region: `ap-south-1`
+Stage: `$default`
+Invoke URL:
 
-Make sure API Gateway has this route attached to the same Lambda.
+`https://ms9anew1xc.execute-api.ap-south-1.amazonaws.com`
 
-## Backend deployment
+The following routes must be attached to the existing Lambda integration `vhw1hmm`:
 
-From the `backend` directory:
+- POST `/tickets/{id}/attachments`
+- POST `/tickets/{id}/attachments/upload-url`
+- POST `/tickets/{id}/attachments/upload`
+- GET `/tickets/{id}/attachments/{attachmentId}/download-url`
 
-```bash
-npm install
-sam build
-sam deploy
-```
+Your current API Gateway screenshot confirms these routes are already present and attached to `vhw1hmm`.
 
-Use your existing SAM configuration/stack parameters. Do not create a second stack if the existing production stack already owns the Cognito authorizer, DynamoDB table and attachment bucket.
+## Apply the code fixes
 
-The Lambda needs:
-
-- `USER_POOL_ID`
-- `TICKETS_TABLE`
-- `ATTACHMENTS_BUCKET`
-- `ALLOWED_ORIGIN=https://portal.alteknetworks.com`
-
-The Lambda execution role must have:
-
-- `dynamodb:GetItem`
-- `dynamodb:PutItem`
-- `dynamodb:UpdateItem`
-- `dynamodb:Scan`
-- `dynamodb:Query`
-- `s3:PutObject`
-- `s3:GetObject`
-- Cognito read permissions used by the existing identity-resolution code.
-
-## S3 CORS
-
-The attachment bucket must allow the portal origin for the large-file presigned upload path.
-
-The existing `backend/S3-CORS.json` should allow:
-
-```json
-[
-  {
-    "AllowedHeaders": ["*"],
-    "AllowedMethods": ["GET", "PUT", "HEAD"],
-    "AllowedOrigins": ["https://portal.alteknetworks.com"],
-    "ExposeHeaders": ["ETag"]
-  }
-]
-```
-
-## API Gateway routes required
-
-```text
-GET    /tickets
-POST   /tickets
-PATCH  /tickets/{ticketId}
-
-POST   /tickets/{ticketId}/attachments/upload
-POST   /tickets/{ticketId}/attachments/upload-url
-POST   /tickets/{ticketId}/attachments
-GET    /tickets/{ticketId}/attachments/{attachmentId}/download-url
-```
-
-All ticket and attachment routes must use the existing Cognito JWT authorizer.
-
-## Frontend deployment
-
-After replacing the files:
+From the repository root:
 
 ```bash
-npm install
-npm run build
+git apply fixes/src-main.patch
+git apply fixes/backend-index.patch
 ```
 
-Then deploy the generated `dist/` through the existing Amplify app.
+Then verify:
 
-Make sure Amplify has:
+```bash
+git diff --check
+```
+
+## Frontend
+
+Set the Amplify environment variable:
 
 ```text
-VITE_API_BASE_URL=<your existing API Gateway URL>
+VITE_API_BASE_URL=https://ms9anew1xc.execute-api.ap-south-1.amazonaws.com
 ```
 
-The production portal remains:
+Then deploy the normal Amplify build from `main`.
+
+## Backend
+
+Deploy the updated `backend/index.mjs` to the SAME Lambda function currently used by integration `vhw1hmm`.
+
+Required environment variables:
 
 ```text
-https://portal.alteknetworks.com
+USER_POOL_ID=<your Cognito user pool ID>
+TICKETS_TABLE=<your existing DynamoDB tickets table>
+ATTACHMENTS_BUCKET=<your existing S3 attachment bucket>
+ALLOWED_ORIGIN=https://portal.alteknetworks.com
 ```
 
-## Validation
+Required Lambda permissions include:
 
-Test with:
+- Cognito `ListUsers` / `AdminGetUser`
+- DynamoDB Get/Put/Update/Delete/Scan/Query
+- S3 PutObject/GetObject for `tickets/*`
 
-- one XLSX file below 7 MB
-- one PDF below 7 MB
-- one file above 7 MB
-- ticket created by a customer
-- ticket updated by SupportAdmin
+Do not create a second API or second ticket Lambda.
 
-Expected:
+## Expected result
 
-- Customer shows email, not UUID.
-- Created by shows email, not UUID.
-- Updated by shows email, not UUID.
-- Comments show email or `Portal user`, never a UUID.
-- <=7 MB attachment uses API/Lambda upload.
-- >7 MB attachment uses presigned S3.
-- Download remains authenticated through the backend.
+For an old ticket containing a Cognito UUID:
+
+```text
+Customer: Portal user
+Created by: Portal user
+```
+
+If the UUID can be resolved from Cognito, the actual email is shown instead.
+
+For a new ticket:
+
+```text
+Customer: customer@example.com
+Created by: customer@example.com
+```
+
+For an XLSX/PDF/DOCX <= 7 MB:
+
+```text
+Browser -> API Gateway -> Lambda -> S3 -> DynamoDB
+```
+
+For files > 7 MB:
+
+```text
+Browser -> API Gateway -> Lambda -> presigned S3 URL -> S3
+                                  -> record attachment -> DynamoDB
+```

@@ -1,0 +1,32 @@
+ALTEKNETWORKS PORTAL API CONFIGURATION
+
+API:
+ALTEKNET-UnifiedPortal-API
+
+API ID:
+ms9anew1xc
+
+REGION:
+ap-south-1
+
+STAGE:
+$default
+
+INVOKE URL:
+https://ms9anew1xc.execute-api.ap-south-1.amazonaws.com
+
+EXISTING TICKET LAMBDA INTEGRATION:
+vhw1hmm
+
+ATTACH THESE ROUTES TO vhw1hmm:
+
+POST /tickets/{id}/attachments
+POST /tickets/{id}/attachments/upload-url
+POST /tickets/{id}/attachments/upload
+GET  /tickets/{id}/attachments/{attachmentId}/download-url
+
+AUTHORIZER:
+ALTEKNET-Cognito-Authorizer
+
+FRONTEND:
+VITE_API_BASE_URL=https://ms9anew1xc.execute-api.ap-south-1.amazonaws.com
