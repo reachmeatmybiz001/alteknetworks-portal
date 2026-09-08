@@ -106,3 +106,18 @@ Deploy the backend with `backend/template.yaml` so the `ATTACHMENTS_BUCKET` envi
 ## Latest fixes
 
 This package includes the ticket identity and attachment fixes. Deploy both the `backend/` Lambda/SAM stack and the Amplify frontend. The backend is required for legacy UUID-to-email resolution and S3 presigned attachment uploads.
+
+## Phase 1 customer asset inventory
+
+This release adds customer-specific asset/serial inventory. Customer users are associated to a customer through the Cognito custom attribute `custom:customerId` (readable by the SPA, not writable by the SPA). The backend resolves this association server-side and validates the ticket serial number against `ALTEKNET-Customer-Assets` before creating a customer ticket.
+
+Super Admins can manage customers and serial numbers from **Admin → Customers & Assets**, including CSV/XLS/XLSX bulk import. When creating a customer portal user, select the customer to populate `custom:customerId`.
+
+Required Lambda environment variables:
+
+```text
+CUSTOMERS_TABLE=ALTEKNET-Customers
+ASSETS_TABLE=ALTEKNET-Customer-Assets
+```
+
+See `PHASE1-DEPLOY.md` for deployment and IAM details.
