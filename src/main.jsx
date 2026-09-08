@@ -1311,28 +1311,14 @@ function TicketTable({
         <div className="ticket-table">
 
           <div className="table-row table-head">
-
-            <span>
-              Ticket
-            </span>
-
-            <span>
-              Subject
-            </span>
-
-            <span>
-              Priority
-            </span>
-
-            <span>
-              Status
-            </span>
-
-            <span>
-              Updated
-            </span>
-
-
+            <span>Ticket</span>
+            <span>Subject</span>
+            <span>Created</span>
+            <span>Created By</span>
+            <span>Priority</span>
+            <span>Status</span>
+            <span>Updated</span>
+            <span>Updated By</span>
           </div>
 
 
@@ -1366,26 +1352,23 @@ function TicketTable({
                     {t.category}
                   </small>
 
-                  <small>
-                    Created by: {t.createdByEmail || t.createdByUsername || t.createdBy || t.customerEmail || '—'}
-                  </small>
-
-                  <small>
-                    Created: {t.createdAt
-                      ? new Date(t.createdAt).toLocaleString()
-                      : '—'}
-                  </small>
-
-                  {t.status === 'Closed' && (
-                    <small>
-                      Time to close: {typeof t.timeSpentMinutes === 'number'
-                        ? `${Math.floor(t.timeSpentMinutes / 60)}h ${t.timeSpentMinutes % 60}m`
-                        : '—'}
-                    </small>
-                  )}
-
                 </span>
 
+                <span>
+                  {t.createdAt
+                    ? new Date(t.createdAt).toLocaleString()
+                    : '—'}
+                </span>
+
+                <span>
+                  <strong>{formatIdentity(
+                    t.createdByEmail || t.createdByUsername || t.createdBy || t.customerEmail,
+                    '—'
+                  )}</strong>
+                  {t.createdByRole && (
+                    <small>{t.createdByRole}</small>
+                  )}
+                </span>
 
                 <span>
                   <Priority
@@ -1393,20 +1376,25 @@ function TicketTable({
                   />
                 </span>
 
-
                 <span>
                   <Status
                     value={t.status}
                   />
                 </span>
 
-
                 <span>
                   {t.updatedAt || t.createdAt
                     ? new Date(
                         t.updatedAt || t.createdAt
-                      ).toLocaleDateString()
+                      ).toLocaleString()
                     : '—'}
+                </span>
+
+                <span>
+                  {formatIdentity(
+                    t.updatedByEmail || t.updatedByUsername || t.updatedBy,
+                    '—'
+                  )}
                 </span>
 
 
