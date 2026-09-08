@@ -40,3 +40,10 @@ If a legacy UUID belongs to a Cognito user that has been permanently deleted, Co
 
 ### S3 upload test
 After backend deployment, the Lambda environment must contain `ATTACHMENTS_BUCKET` and the bucket must have CORS allowing the portal origin with PUT/GET/HEAD. The frontend must be rebuilt/deployed after the backend API is updated.
+
+## Current release notes (2026-09-08)
+- Removed the entire "Latest support requests" section from the dashboard. The dashboard now contains only the three clickable ticket summary cards and the admin Excel export action.
+- Hardened legacy identity resolution: UUID values are resolved first as Cognito usernames, then by Cognito `sub`, then by the full user map. The UI no longer intentionally hides a UUID; it displays the resolved identity returned by the API.
+- Added an authenticated API upload fallback for attachments up to 7 MB. This is used automatically if the browser cannot complete the direct S3 PUT because of S3 CORS/network restrictions.
+- The normal direct S3 presigned upload remains available for files up to 25 MB.
+- Keep the existing DynamoDB ticket table and existing API deployment. Do not replace the production ticket table with a newly created empty table.
