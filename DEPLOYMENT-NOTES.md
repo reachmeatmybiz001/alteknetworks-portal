@@ -47,3 +47,17 @@ After backend deployment, the Lambda environment must contain `ATTACHMENTS_BUCKE
 - Added an authenticated API upload fallback for attachments up to 7 MB. This is used automatically if the browser cannot complete the direct S3 PUT because of S3 CORS/network restrictions.
 - The normal direct S3 presigned upload remains available for files up to 25 MB.
 - Keep the existing DynamoDB ticket table and existing API deployment. Do not replace the production ticket table with a newly created empty table.
+
+## GitHub Actions backend deployment
+
+This repository includes `.github/workflows/deploy-backend.yml`. It deploys the existing Lambda function `ALTEKNET-UnifiedPortal-API` in `ap-south-1` whenever `backend/**` changes on `main`, or when manually dispatched.
+
+Before the first backend deployment, configure GitHub Actions OIDC in AWS IAM and add this repository variable:
+
+- `AWS_ROLE_ARN` = ARN of the IAM role trusted by GitHub Actions for `reachmeatmybiz001/alteknetworks-portal` on `main`.
+
+The role needs permission to call `lambda:GetFunction`, `lambda:UpdateFunctionCode`, and `lambda:PublishVersion` on:
+
+`arn:aws:lambda:ap-south-1:<ACCOUNT_ID>:function:ALTEKNET-UnifiedPortal-API`
+
+Do not put AWS access keys, Cognito secrets, or other credentials in this repository.
