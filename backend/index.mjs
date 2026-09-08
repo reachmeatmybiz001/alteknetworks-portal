@@ -10,6 +10,8 @@ import {
   AdminListGroupsForUserCommand,
   AdminSetUserPasswordCommand,
   AdminGetUserCommand,
+  AdminUpdateUserAttributesCommand,
+  AdminDeleteUserAttributesCommand,
 } from '@aws-sdk/client-cognito-identity-provider'
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
@@ -29,6 +31,8 @@ const USER_POOL_ID = process.env.USER_POOL_ID
 const TICKETS_TABLE = process.env.TICKETS_TABLE
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://portal.alteknetworks.com'
 const ATTACHMENTS_BUCKET = process.env.ATTACHMENTS_BUCKET
+const CUSTOMERS_TABLE = process.env.CUSTOMERS_TABLE || 'ALTEKNET-Customers'
+const ASSETS_TABLE = process.env.ASSETS_TABLE || 'ALTEKNET-Customer-Assets'
 
 const cognito = new CognitoIdentityProviderClient({ region: REGION })
 const s3 = new S3Client({ region: REGION })
@@ -248,6 +252,242 @@ async function getUserRole(username) {
   }
 }
 
+async function getCognitoUsername(event) {
+  const c = claims(event)
+  return String(
+    c['cognito:username'] ||
+    c.username ||
+    c.email ||
+    c.preferred_username ||
+    c.sub ||
+    ''
+  ).trim()
+}
+
+async function getCustomerIdForUsername(username) {
+  if (!username) return ''
+  const result = await cognito.send(new AdminGetUserCommand({
+    UserPoolId: USER_POOL_ID,
+    Username: username,
+  }))
+  return (result.UserAttributes || [])
+    .find((item) => item.Name === 'custom:customerId')?.Value || ''
+}
+
+async function getAuthenticatedCustomerId(event) {
+  if (role(event) !== 'Customers') return ''
+  const username = await getCognitoUsername(event)
+  const customerId = await getCustomerIdForUsername(username)
+  if (!customerId) {
+    throw Object.assign(new Error('Customer account is not associated with a customer record'), { statusCode: 403 })
+  }
+  return customerId
+}
+
+async function getCustomer(customerId) {
+  const result = await ddb.send(new GetCommand({
+    TableName: CUSTOMERS_TABLE,
+    Key: { customerId },
+  }))
+  return result.Item || null
+}
+
+async function requireActiveCustomer(customerId) {
+  const customer = await getCustomer(customerId)
+  if (!customer) throw Object.assign(new Error('Customer not found'), { statusCode: 404 })
+  if (String(customer.status || 'Active').toLowerCase() !== 'active') {
+    throw Object.assign(new Error('Customer is inactive'), { statusCode: 400 })
+  }
+  return customer
+}
+
+async function getAsset(serialNumber) {
+  const result = await ddb.send(new GetCommand({
+    TableName: ASSETS_TABLE,
+    Key: { serialNumber },
+  }))
+  return result.Item || null
+}
+
+async function validateSerialForCustomer(serialNumber, customerId, reveal = false) {
+  const serial = String(serialNumber || '').trim()
+  if (!serial) throw Object.assign(new Error('Serial number is required'), { statusCode: 400 })
+  const asset = await getAsset(serial)
+  if (!asset || String(asset.customerId || '') !== String(customerId) || String(asset.status || 'Active').toLowerCase() !== 'active') {
+    throw Object.assign(new Error(reveal ? 'Serial number is not valid for this customer' : 'Serial number not found'), { statusCode: 404 })
+  }
+  return asset
+}
+
+async function listCustomers(event) {
+  requireRole(event, ['SuperAdmins'])
+  const result = await ddb.send(new ScanCommand({ TableName: CUSTOMERS_TABLE }))
+  return response(200, result.Items || [])
+}
+
+async function createCustomer(event) {
+  requireRole(event, ['SuperAdmins'])
+  const body = parseBody(event)
+  const customerName = String(body.customerName || body.name || '').trim()
+  if (!customerName) throw Object.assign(new Error('Customer name is required'), { statusCode: 400 })
+
+  const customerId = String(body.customerId || `CUST-${Date.now().toString().slice(-6)}`).trim()
+  const existing = await getCustomer(customerId)
+  if (existing) throw Object.assign(new Error('Customer ID already exists'), { statusCode: 409 })
+
+  const item = {
+    customerId,
+    customerName,
+    status: String(body.status || 'Active'),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  await ddb.send(new PutCommand({ TableName: CUSTOMERS_TABLE, Item: item }))
+  return response(201, item)
+}
+
+async function listCustomerAssets(event, customerId) {
+  requireRole(event, ['SuperAdmins'])
+  await requireActiveCustomer(customerId)
+  const result = await ddb.send(new QueryCommand({
+    TableName: ASSETS_TABLE,
+    IndexName: 'customerId-index',
+    KeyConditionExpression: 'customerId = :customerId',
+    ExpressionAttributeValues: { ':customerId': customerId },
+  }))
+  return response(200, result.Items || [])
+}
+
+async function createCustomerAsset(event, customerId) {
+  requireRole(event, ['SuperAdmins'])
+  const customer = await requireActiveCustomer(customerId)
+  const body = parseBody(event)
+  const serialNumber = String(body.serialNumber || '').trim()
+  if (!serialNumber) throw Object.assign(new Error('Serial number is required'), { statusCode: 400 })
+  if (await getAsset(serialNumber)) throw Object.assign(new Error('Serial number already exists'), { statusCode: 409 })
+
+  const item = {
+    serialNumber,
+    customerId,
+    customerName: customer.customerName,
+    product: String(body.product || '').trim(),
+    manufacturer: String(body.manufacturer || '').trim(),
+    model: String(body.model || '').trim(),
+    status: String(body.status || 'Active'),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  await ddb.send(new PutCommand({ TableName: ASSETS_TABLE, Item: item }))
+  return response(201, item)
+}
+
+async function importCustomerAssets(event, customerId) {
+  requireRole(event, ['SuperAdmins'])
+  const customer = await requireActiveCustomer(customerId)
+  const body = parseBody(event)
+  const rows = Array.isArray(body.rows) ? body.rows : []
+  if (!rows.length) throw Object.assign(new Error('No asset rows supplied'), { statusCode: 400 })
+  if (rows.length > 1000) throw Object.assign(new Error('Maximum 1000 assets per import'), { statusCode: 400 })
+
+  let created = 0
+  let updated = 0
+  const errors = []
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] || {}
+    const serialNumber = String(row.serialNumber || row.SerialNumber || '').trim()
+    if (!serialNumber) {
+      errors.push({ row: index + 2, message: 'Serial number is required' })
+      continue
+    }
+    const existing = await getAsset(serialNumber)
+    if (existing && String(existing.customerId || '') !== String(customerId)) {
+      errors.push({ row: index + 2, serialNumber, message: 'Serial number already belongs to another customer' })
+      continue
+    }
+    const item = {
+      serialNumber,
+      customerId,
+      customerName: customer.customerName,
+      product: String(row.product || row.Product || existing?.product || '').trim(),
+      manufacturer: String(row.manufacturer || row.Manufacturer || existing?.manufacturer || '').trim(),
+      model: String(row.model || row.Model || existing?.model || '').trim(),
+      status: String(row.status || row.Status || existing?.status || 'Active').trim(),
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    await ddb.send(new PutCommand({ TableName: ASSETS_TABLE, Item: item }))
+    if (existing) updated += 1
+    else created += 1
+  }
+  return response(200, { created, updated, errors })
+}
+
+async function updateCustomerAsset(event, customerId, serialNumber) {
+  requireRole(event, ['SuperAdmins'])
+  await requireActiveCustomer(customerId)
+  const existing = await getAsset(serialNumber)
+  if (!existing || String(existing.customerId || '') !== String(customerId)) {
+    throw Object.assign(new Error('Asset not found'), { statusCode: 404 })
+  }
+  const body = parseBody(event)
+  const updates = {}
+  for (const key of ['product', 'manufacturer', 'model', 'status']) {
+    if (body[key] !== undefined) updates[key] = String(body[key]).trim()
+  }
+  if (!Object.keys(updates).length) return response(200, existing)
+  updates.updatedAt = new Date().toISOString()
+  const names = {}
+  const values = {}
+  const expressions = []
+  for (const [key, value] of Object.entries(updates)) {
+    names[`#${key}`] = key
+    values[`:${key}`] = value
+    expressions.push(`#${key} = :${key}`)
+  }
+  const result = await ddb.send(new UpdateCommand({
+    TableName: ASSETS_TABLE,
+    Key: { serialNumber },
+    UpdateExpression: `SET ${expressions.join(', ')}`,
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+    ReturnValues: 'ALL_NEW',
+  }))
+  return response(200, result.Attributes)
+}
+
+async function deleteCustomerAsset(event, customerId, serialNumber) {
+  requireRole(event, ['SuperAdmins'])
+  await requireActiveCustomer(customerId)
+  const existing = await getAsset(serialNumber)
+  if (!existing || String(existing.customerId || '') !== String(customerId)) {
+    throw Object.assign(new Error('Asset not found'), { statusCode: 404 })
+  }
+  await ddb.send(new DeleteCommand({ TableName: ASSETS_TABLE, Key: { serialNumber } }))
+  return response(200, { serialNumber, deleted: true })
+}
+
+async function validateTicketSerial(event) {
+  const currentRole = role(event)
+  const body = parseBody(event)
+  const serialNumber = String(body.serialNumber || '').trim()
+  const customerId = currentRole === 'Customers'
+    ? await getAuthenticatedCustomerId(event)
+    : String(body.customerId || '').trim()
+  if (!customerId) throw Object.assign(new Error('Customer ID is required'), { statusCode: 400 })
+  if (currentRole !== 'Customers') await requireActiveCustomer(customerId)
+  const asset = await validateSerialForCustomer(serialNumber, customerId, currentRole !== 'Customers')
+  return response(200, {
+    valid: true,
+    serialNumber: asset.serialNumber,
+    customerId: asset.customerId,
+    customerName: asset.customerName,
+    product: asset.product || '',
+    manufacturer: asset.manufacturer || '',
+    model: asset.model || '',
+    status: asset.status || 'Active',
+  })
+}
+
 async function listAllUsers() {
   let users = []
   let token
@@ -272,6 +512,7 @@ async function listAllUsers() {
       enabled: user.Enabled !== false,
       status: user.UserStatus,
       role: await getUserRole(user.Username),
+      customerId: (user.Attributes || []).find((a) => a.Name === 'custom:customerId')?.Value || '',
       createdAt: user.UserCreateDate,
       lastModifiedAt: user.UserLastModifiedDate,
     }))
@@ -300,37 +541,21 @@ async function enrichTicketIdentities(tickets) {
 }
 
 async function listTickets(event) {
-  const actorIdentityValue = await actorIdentity(event)
-  if (role(event) === 'Customers') {
-    try {
-      const result = await ddb.send(
-        new QueryCommand({
-          TableName: TICKETS_TABLE,
-          IndexName: 'customerEmail-index',
-          KeyConditionExpression: 'customerEmail = :email',
-          ExpressionAttributeValues: { ':email': await actorIdentity(event) },
-        })
-      )
-      if (result.Items?.length) return enrichTicketIdentities(result.Items)
-      // Older tickets may have stored the Cognito sub instead of the email.
-      // Fall through to Scan so those tickets remain visible after the identity fix.
-    } catch (error) {
-      // Fallback for an existing table without the GSI.
-      if (!String(error?.message || '').includes('customerEmail-index')) throw error
-    }
+  const currentRole = role(event)
+  if (currentRole === 'Customers') {
+    const customerId = await getAuthenticatedCustomerId(event)
+    const actorEmail = (claims(event).email || '').toString().trim().toLowerCase()
+    const result = await ddb.send(new ScanCommand({ TableName: TICKETS_TABLE }))
+    const tickets = result.Items || []
+    const owned = tickets.filter((ticket) => {
+      if (ticket.customerId) return String(ticket.customerId) === String(customerId)
+      return String(ticket.customerEmail || '').toLowerCase() === actorEmail
+    })
+    return enrichTicketIdentities(owned)
   }
 
   const result = await ddb.send(new ScanCommand({ TableName: TICKETS_TABLE }))
-  const tickets = result.Items || []
-
-  if (role(event) === 'Customers') {
-    const enriched = await enrichTicketIdentities(tickets)
-    return enriched.filter(
-      (ticket) => String(ticket.customerEmail || '').toLowerCase() === actorIdentityValue
-    )
-  }
-
-  return enrichTicketIdentities(tickets)
+  return enrichTicketIdentities(result.Items || [])
 }
 
 async function createTicket(event) {
@@ -343,8 +568,24 @@ async function createTicket(event) {
   }
 
   let customerEmail = actorEmail
-  if (ADMIN_ROLES.includes(currentRole) && body.customerEmail) {
-    customerEmail = String(body.customerEmail).trim().toLowerCase()
+  let customerId = ''
+  let asset = null
+
+  if (currentRole === 'Customers') {
+    customerId = await getAuthenticatedCustomerId(event)
+    const serialNumber = String(body.serialNumber || '').trim()
+    if (!serialNumber) throw Object.assign(new Error('Serial number is required'), { statusCode: 400 })
+    asset = await validateSerialForCustomer(serialNumber, customerId, false)
+  } else {
+    if (body.customerId) {
+      customerId = String(body.customerId).trim()
+      await requireActiveCustomer(customerId)
+    }
+    if (body.serialNumber) {
+      if (!customerId) throw Object.assign(new Error('Customer ID is required when a serial number is supplied'), { statusCode: 400 })
+      asset = await validateSerialForCustomer(String(body.serialNumber).trim(), customerId, true)
+    }
+    if (body.customerEmail) customerEmail = String(body.customerEmail).trim().toLowerCase()
   }
 
   const now = new Date().toISOString()
@@ -355,6 +596,13 @@ async function createTicket(event) {
     priority: String(body.priority || 'Medium'),
     description: String(body.description).slice(0, 10000),
     customerEmail,
+    ...(customerId ? { customerId } : {}),
+    ...(asset ? {
+      serialNumber: asset.serialNumber,
+      product: asset.product || '',
+      manufacturer: asset.manufacturer || '',
+      model: asset.model || '',
+    } : {}),
     createdBy: actorEmail || actorUsername(event),
     createdByEmail: actorEmail || actorUsername(event),
     createdByUsername: actorEmail || actorUsername(event),
@@ -380,6 +628,7 @@ async function updateTicket(event, ticketIdValue, attachmentOverride = null) {
   const currentRole = role(event)
   const body = parseBody(event)
   const actorEmail = await actorIdentity(event)
+  const actorCustomerId = currentRole === 'Customers' ? await getAuthenticatedCustomerId(event) : ''
 
   const existingResult = await ddb.send(
     new GetCommand({ TableName: TICKETS_TABLE, Key: { id: ticketIdValue } })
@@ -394,7 +643,9 @@ async function updateTicket(event, ticketIdValue, attachmentOverride = null) {
     throw Object.assign(new Error('Closed tickets cannot be modified'), { statusCode: 409 })
   }
 
-  const isOwner = String(existing.customerEmail || '').toLowerCase() === actorEmail
+  const isOwner = existing.customerId
+    ? String(existing.customerId) === String(actorCustomerId)
+    : String(existing.customerEmail || '').toLowerCase() === actorEmail
   const isCustomer = currentRole === 'Customers'
   const isSupport = currentRole === 'SupportAdmins'
   const isSuper = currentRole === 'SuperAdmins'
@@ -502,8 +753,11 @@ async function createAttachmentUploadUrl(event, ticketIdValue) {
   const ticket = result.Item
   if (!ticket) throw Object.assign(new Error('Ticket not found'), { statusCode: 404 })
 
+  const actorCustomerId = currentRole === 'Customers' ? await getAuthenticatedCustomerId(event) : ''
   const ticketCustomerIdentity = await displayIdentityForStoredValue(ticket.customerEmail)
-  const isOwner = String(ticketCustomerIdentity || ticket.customerEmail || '').toLowerCase() === actorEmail
+  const isOwner = ticket.customerId
+    ? String(ticket.customerId) === String(actorCustomerId)
+    : String(ticketCustomerIdentity || ticket.customerEmail || '').toLowerCase() === actorEmail
   if (currentRole === 'Customers' && !isOwner) {
     throw Object.assign(new Error('Customers can only attach files to their own tickets'), { statusCode: 403 })
   }
@@ -552,8 +806,11 @@ async function uploadAttachmentViaApi(event, ticketIdValue) {
   const ticket = result.Item
   if (!ticket) throw Object.assign(new Error('Ticket not found'), { statusCode: 404 })
 
+  const actorCustomerId = currentRole === 'Customers' ? await getAuthenticatedCustomerId(event) : ''
   const ticketCustomerIdentity = await displayIdentityForStoredValue(ticket.customerEmail)
-  const isOwner = String(ticketCustomerIdentity || ticket.customerEmail || '').toLowerCase() === actorEmail
+  const isOwner = ticket.customerId
+    ? String(ticket.customerId) === String(actorCustomerId)
+    : String(ticketCustomerIdentity || ticket.customerEmail || '').toLowerCase() === actorEmail
   if (currentRole === 'Customers' && !isOwner) {
     throw Object.assign(new Error('Customers can only attach files to their own tickets'), { statusCode: 403 })
   }
@@ -613,8 +870,11 @@ async function downloadAttachment(event, ticketIdValue, attachmentId) {
   const result = await ddb.send(new GetCommand({ TableName: TICKETS_TABLE, Key: { id: ticketIdValue } }))
   const ticket = result.Item
   if (!ticket) throw Object.assign(new Error('Ticket not found'), { statusCode: 404 })
+  const actorCustomerId = currentRole === 'Customers' ? await getAuthenticatedCustomerId(event) : ''
   const ticketCustomerIdentity = await displayIdentityForStoredValue(ticket.customerEmail)
-  const isOwner = String(ticketCustomerIdentity || ticket.customerEmail || '').toLowerCase() === actorEmail
+  const isOwner = ticket.customerId
+    ? String(ticket.customerId) === String(actorCustomerId)
+    : String(ticketCustomerIdentity || ticket.customerEmail || '').toLowerCase() === actorEmail
   if (currentRole === 'Customers' && !isOwner) throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
 
   const attachment = (ticket.attachments || []).find((item) => item.id === attachmentId || item.key === attachmentId)
@@ -634,42 +894,41 @@ async function createUser(event) {
   const newRole = body.role || 'Customers'
   const userEmail = String(body.email || '').trim().toLowerCase()
   const temporaryPassword = String(body.temporaryPassword || '').trim()
+  const customerId = String(body.customerId || '').trim()
 
-  if (!ROLES.includes(newRole)) {
-    throw Object.assign(new Error('Invalid role'), { statusCode: 400 })
-  }
-  if (!userEmail) {
-    throw Object.assign(new Error('Email is required'), { statusCode: 400 })
-  }
-  if (!temporaryPassword) {
-    throw Object.assign(new Error('Temporary password is required'), { statusCode: 400 })
+  if (!ROLES.includes(newRole)) throw Object.assign(new Error('Invalid role'), { statusCode: 400 })
+  if (!userEmail) throw Object.assign(new Error('Email is required'), { statusCode: 400 })
+  if (!temporaryPassword) throw Object.assign(new Error('Temporary password is required'), { statusCode: 400 })
+  if (newRole === 'Customers') {
+    if (!customerId) throw Object.assign(new Error('Customer is required for customer users'), { statusCode: 400 })
+    await requireActiveCustomer(customerId)
   }
 
-  const result = await cognito.send(
-    new AdminCreateUserCommand({
-      UserPoolId: USER_POOL_ID,
-      Username: userEmail,
-      TemporaryPassword: temporaryPassword,
-      UserAttributes: [
-        { Name: 'email', Value: userEmail },
-        { Name: 'email_verified', Value: 'true' },
-      ],
-      MessageAction: 'SUPPRESS',
-    })
-  )
+  const attributes = [
+    { Name: 'email', Value: userEmail },
+    { Name: 'email_verified', Value: 'true' },
+  ]
+  if (newRole === 'Customers') attributes.push({ Name: 'custom:customerId', Value: customerId })
 
-  await cognito.send(
-    new AdminAddUserToGroupCommand({
-      UserPoolId: USER_POOL_ID,
-      Username: result.User.Username,
-      GroupName: newRole,
-    })
-  )
+  const result = await cognito.send(new AdminCreateUserCommand({
+    UserPoolId: USER_POOL_ID,
+    Username: userEmail,
+    TemporaryPassword: temporaryPassword,
+    UserAttributes: attributes,
+    MessageAction: 'SUPPRESS',
+  }))
+
+  await cognito.send(new AdminAddUserToGroupCommand({
+    UserPoolId: USER_POOL_ID,
+    Username: result.User.Username,
+    GroupName: newRole,
+  }))
 
   return response(201, {
     username: result.User.Username,
     email: userEmail,
     role: newRole,
+    customerId: newRole === 'Customers' ? customerId : '',
     enabled: true,
     status: result.User.UserStatus,
   })
@@ -678,65 +937,63 @@ async function createUser(event) {
 async function updateUser(event, username) {
   requireRole(event, ['SuperAdmins'])
   const body = parseBody(event)
+  const currentRole = await getUserRole(username)
+  const newRole = body.role !== undefined ? String(body.role) : currentRole
 
-  if (body.role !== undefined) {
-    const newRole = String(body.role)
-    if (!ROLES.includes(newRole)) {
-      throw Object.assign(new Error('Invalid role'), { statusCode: 400 })
+  if (!ROLES.includes(newRole)) throw Object.assign(new Error('Invalid role'), { statusCode: 400 })
+
+  if (body.role !== undefined && currentRole !== newRole) {
+    if (ROLES.includes(currentRole)) {
+      await cognito.send(new AdminRemoveUserFromGroupCommand({ UserPoolId: USER_POOL_ID, Username: username, GroupName: currentRole }))
     }
+    await cognito.send(new AdminAddUserToGroupCommand({ UserPoolId: USER_POOL_ID, Username: username, GroupName: newRole }))
+  }
 
-    const currentRole = await getUserRole(username)
-    if (currentRole !== newRole) {
-      if (ROLES.includes(currentRole)) {
-        await cognito.send(
-          new AdminRemoveUserFromGroupCommand({
-            UserPoolId: USER_POOL_ID,
-            Username: username,
-            GroupName: currentRole,
-          })
-        )
+  if (body.role !== undefined || body.customerId !== undefined) {
+    if (newRole === 'Customers') {
+      let customerId = String(body.customerId || '').trim()
+      if (!customerId) {
+        try {
+          customerId = await getCustomerIdForUsername(username)
+        } catch {}
       }
-
-      await cognito.send(
-        new AdminAddUserToGroupCommand({
-          UserPoolId: USER_POOL_ID,
-          Username: username,
-          GroupName: newRole,
-        })
-      )
+      if (!customerId) throw Object.assign(new Error('Customer is required for customer users'), { statusCode: 400 })
+      await requireActiveCustomer(customerId)
+      await cognito.send(new AdminUpdateUserAttributesCommand({
+        UserPoolId: USER_POOL_ID,
+        Username: username,
+        UserAttributes: [{ Name: 'custom:customerId', Value: customerId }],
+      }))
+      return response(200, { username, role: newRole, customerId })
     }
-
-    return response(200, { username, role: newRole })
+    try {
+      await cognito.send(new AdminDeleteUserAttributesCommand({
+        UserPoolId: USER_POOL_ID,
+        Username: username,
+        UserAttributeNames: ['custom:customerId'],
+      }))
+    } catch {}
+    return response(200, { username, role: newRole, customerId: '' })
   }
 
   if (body.enabled !== undefined) {
     const command = body.enabled
       ? new AdminEnableUserCommand({ UserPoolId: USER_POOL_ID, Username: username })
       : new AdminDisableUserCommand({ UserPoolId: USER_POOL_ID, Username: username })
-
     await cognito.send(command)
     return response(200, { username, enabled: body.enabled })
   }
 
   if (body.action === 'reset-password') {
     const temporaryPassword = String(body.temporaryPassword || '').trim()
-    if (!temporaryPassword) {
-      throw Object.assign(new Error('Temporary password is required'), { statusCode: 400 })
-    }
-
-    await cognito.send(
-      new AdminSetUserPasswordCommand({
-        UserPoolId: USER_POOL_ID,
-        Username: username,
-        Password: temporaryPassword,
-        Permanent: false,
-      })
-    )
-
-    return response(200, {
-      username,
-      message: 'Temporary password set successfully. The user must change it at next login.',
-    })
+    if (!temporaryPassword) throw Object.assign(new Error('Temporary password is required'), { statusCode: 400 })
+    await cognito.send(new AdminSetUserPasswordCommand({
+      UserPoolId: USER_POOL_ID,
+      Username: username,
+      Password: temporaryPassword,
+      Permanent: false,
+    }))
+    return response(200, { username, message: 'Temporary password set successfully. The user must change it at next login.' })
   }
 
   throw Object.assign(new Error('No supported update supplied'), { statusCode: 400 })
@@ -756,6 +1013,38 @@ export async function handler(event) {
     const path = event?.rawPath || event?.requestContext?.http?.path || event?.path || ''
 
     if (method === 'OPTIONS') return response(204, {})
+
+    if (method === 'GET' && path.endsWith('/customers')) {
+      return listCustomers(event)
+    }
+
+    if (method === 'POST' && path.endsWith('/customers')) {
+      return createCustomer(event)
+    }
+
+    const assetImportMatch = path.match(/\/customers\/([^/]+)\/assets\/import$/)
+    if (method === 'POST' && assetImportMatch) {
+      return importCustomerAssets(event, decodeURIComponent(assetImportMatch[1]))
+    }
+
+    const assetMatch = path.match(/\/customers\/([^/]+)\/assets\/([^/]+)$/)
+    if (assetMatch) {
+      const customerId = decodeURIComponent(assetMatch[1])
+      const serialNumber = decodeURIComponent(assetMatch[2])
+      if (method === 'PATCH') return updateCustomerAsset(event, customerId, serialNumber)
+      if (method === 'DELETE') return deleteCustomerAsset(event, customerId, serialNumber)
+    }
+
+    const customerAssetsMatch = path.match(/\/customers\/([^/]+)\/assets$/)
+    if (customerAssetsMatch) {
+      const customerId = decodeURIComponent(customerAssetsMatch[1])
+      if (method === 'GET') return listCustomerAssets(event, customerId)
+      if (method === 'POST') return createCustomerAsset(event, customerId)
+    }
+
+    if (method === 'POST' && path.endsWith('/tickets/validate-serial')) {
+      return validateTicketSerial(event)
+    }
 
     if (method === 'GET' && path.endsWith('/tickets')) {
       return response(200, await listTickets(event))
