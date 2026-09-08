@@ -1,0 +1,42 @@
+*** Begin Patch
+*** Update File: src/main.jsx
+@@
+ function formatIdentity(value, fallback = '—') {
+   const text = String(value || '').trim()
+   if (!text) return fallback
++  // Never expose Cognito UUID/sub values in the customer/admin UI.
++  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) {
++    return fallback
++  }
+   return text
+ }
+@@
+   const saveAttachments = async () => {
+     if (!files.length) return
+     setUploadError('')
+     setUploading(true)
+     try {
+       for (const file of files) {
+         await uploadTicketAttachment(ticket.id, file)
+       }
+       setFiles([])
+       await onUpdate(ticket.id, {})
+     } catch (error) {
+-      setUploadError(error?.message || 'Unable to upload the attachment. Please try again.')
++      setUploadError(
++        error?.message ||
++        'Unable to upload the attachment. Please check the API deployment and try again.'
++      )
+     } finally {
+       setUploading(false)
+     }
+   }
+@@
+           {ticket.comments.map((item) => (
+             <div className="comment-item" key={item.id || `${item.createdAt}-${item.createdBy}`}>
+-              <div><strong>{item.createdByEmail || item.createdByUsername || item.createdBy || 'Portal user'}</strong><small>{item.createdAt ? new Date(item.createdAt).toLocaleString() : '—'}</small></div>
++              <div><strong>{formatIdentity(item.createdByEmail || item.createdByUsername || item.createdBy, 'Portal user')}</strong><small>{item.createdAt ? new Date(item.createdAt).toLocaleString() : '—'}</small></div>
+               <p>{item.text}</p>
+             </div>
+           ))}
+*** End Patch
