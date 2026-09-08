@@ -26,3 +26,13 @@ export const listUsers = () => request('/admin/users')
 export const createUser = (body) => request('/admin/users', { method: 'POST', body: JSON.stringify(body) })
 export const updateUser = (username, body) => request(`/admin/users/${encodeURIComponent(username)}`, { method: 'PATCH', body: JSON.stringify(body) })
 export const deleteUser = (username) => request(`/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' })
+
+
+export const listCustomers = () => request('/customers')
+export const createCustomer = (body) => request('/customers', { method: 'POST', body: JSON.stringify(body) })
+export const listCustomerAssets = (customerId) => request(`/customers/${encodeURIComponent(customerId)}/assets`)
+export const createCustomerAsset = (customerId, body) => request(`/customers/${encodeURIComponent(customerId)}/assets`, { method: 'POST', body: JSON.stringify(body) })
+export const importCustomerAssets = (customerId, rows) => request(`/customers/${encodeURIComponent(customerId)}/assets/import`, { method: 'POST', body: JSON.stringify({ rows }) })
+export const updateCustomerAsset = (customerId, serialNumber, body) => request(`/customers/${encodeURIComponent(customerId)}/assets/${encodeURIComponent(serialNumber)}`, { method: 'PATCH', body: JSON.stringify(body) })
+export const deleteCustomerAsset = (customerId, serialNumber) => request(`/customers/${encodeURIComponent(customerId)}/assets/${encodeURIComponent(serialNumber)}`, { method: 'DELETE' })
+export const validateTicketSerial = (serialNumber, customerId = '') => request('/tickets/validate-serial', { method: 'POST', body: JSON.stringify({ serialNumber, ...(customerId ? { customerId } : {}) }) })

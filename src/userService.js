@@ -34,7 +34,7 @@ export function updateUser(username, changes = {}) {
   }
 
   if (changes.role) {
-    return apiUpdateUser(username, { role: changes.role })
+    return apiUpdateUser(username, { role: changes.role, ...(changes.customerId !== undefined ? { customerId: changes.customerId } : {}) })
   }
 
   return apiUpdateUser(username, changes)

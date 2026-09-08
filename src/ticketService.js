@@ -1,5 +1,6 @@
 import { fetchAuthSession } from 'aws-amplify/auth'
 import { config } from './config'
+import { validateTicketSerial as apiValidateTicketSerial } from './api'
 
 const STORAGE_KEY = 'alteknetworks.portal.tickets.v1'
 
@@ -179,4 +180,8 @@ export async function getTicketAttachmentDownloadUrl(id, attachmentId) {
     { method: 'GET' },
   )
   return result.url
+}
+
+export async function validateTicketSerial(serialNumber, customerId = '') {
+  return apiValidateTicketSerial(serialNumber, customerId)
 }

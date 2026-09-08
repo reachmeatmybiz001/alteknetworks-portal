@@ -15,6 +15,7 @@ import {
   updateTicket,
   uploadTicketAttachment,
   getTicketAttachmentDownloadUrl,
+  validateTicketSerial,
 } from './ticketService'
 
 import {
@@ -25,6 +26,16 @@ import {
   USER_ROLES,
   canManageUserRole,
 } from './userService'
+
+import {
+  listCustomers,
+  createCustomer,
+  listCustomerAssets,
+  createCustomerAsset,
+  importCustomerAssets,
+  updateCustomerAsset,
+  deleteCustomerAsset,
+} from './api'
 
 import * as XLSX from 'xlsx'
 
@@ -439,6 +450,9 @@ function App() {
   const [users, setUsers] =
     useState([])
 
+  const [customers, setCustomers] =
+    useState([])
+
   const [error, setError] =
     useState('')
 
@@ -600,6 +614,21 @@ function App() {
 
       throw error
 
+    }
+  }
+
+
+  /* =======================================================
+     LOAD CUSTOMERS
+  ======================================================= */
+
+  const loadCustomers = async () => {
+    if (!isSuperAdmin) return
+    try {
+      const result = await listCustomers()
+      setCustomers(Array.isArray(result) ? result : [])
+    } catch (error) {
+      setError(error?.message || 'Unable to load customers.')
     }
   }
 
@@ -850,11 +879,9 @@ function App() {
 
                   setView('admin')
 
-                  if (
-                    isSuperAdmin &&
-                    users.length === 0
-                  ) {
-                    loadUsers()
+                  if (isSuperAdmin) {
+                    if (users.length === 0) loadUsers()
+                    if (customers.length === 0) loadCustomers()
                   }
 
                 }}
@@ -1005,6 +1032,18 @@ function App() {
               onDeleteUser={handleDeleteUser}
               actorRole={actorRole}
               isSuperAdmin={isSuperAdmin}
+              customers={customers}
+              onLoadCustomers={loadCustomers}
+              onCreateCustomer={async (payload) => {
+                const result = await createCustomer(payload)
+                await loadCustomers()
+                return result
+              }}
+              onListAssets={listCustomerAssets}
+              onCreateAsset={createCustomerAsset}
+              onImportAssets={importCustomerAssets}
+              onUpdateAsset={updateCustomerAsset}
+              onDeleteAsset={deleteCustomerAsset}
             />
 
           )}
@@ -1652,6 +1691,7 @@ function NewTicket({
   const [form, setForm] =
     useState({
       customerEmail: '',
+      serialNumber: '',
       subject: '',
       category: categories[0],
       priority: 'Medium',
@@ -1663,15 +1703,37 @@ function NewTicket({
   const [saving, setSaving] =
     useState(false)
 
+  const [serialAsset, setSerialAsset] = useState(null)
+  const [serialChecking, setSerialChecking] = useState(false)
+  const [serialError, setSerialError] = useState('')
+
+  const checkSerial = async () => {
+    if (!form.serialNumber.trim()) {
+      setSerialAsset(null)
+      setSerialError('Serial number is required.')
+      return
+    }
+    setSerialChecking(true)
+    setSerialError('')
+    try {
+      const result = await validateTicketSerial(form.serialNumber.trim())
+      setSerialAsset(result)
+    } catch (error) {
+      setSerialAsset(null)
+      setSerialError(error?.message || 'Serial number is not valid for your account.')
+    } finally {
+      setSerialChecking(false)
+    }
+  }
+
 
   const submit = async (e) => {
 
     e.preventDefault()
 
-    if (
-      !form.subject.trim() ||
-      !form.description.trim()
-    ) {
+    if (!form.subject.trim() || !form.description.trim()) return
+    if (!isAdmin && (!form.serialNumber.trim() || !serialAsset)) {
+      await checkSerial()
       return
     }
 
@@ -1740,6 +1802,26 @@ function NewTicket({
         )}
 
         <div className="form-grid">
+
+          <label>
+            Asset Serial Number
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                value={form.serialNumber}
+                onChange={(e) => { setForm({ ...form, serialNumber: e.target.value }); setSerialAsset(null); setSerialError('') }}
+                onBlur={() => { if (form.serialNumber.trim() && !isAdmin) checkSerial() }}
+                placeholder="Enter the device serial number"
+                required={!isAdmin}
+              />
+              <button type="button" className="secondary-button" onClick={checkSerial} disabled={serialChecking}>
+                {serialChecking ? 'Checking…' : 'Validate'}
+              </button>
+            </div>
+            {serialError && <small style={{ color: '#b42318' }}>{serialError}</small>}
+            {serialAsset && (
+              <small>Valid asset: {serialAsset.product || '—'} · {serialAsset.manufacturer || '—'} · {serialAsset.model || '—'}</small>
+            )}
+          </label>
 
           <label>
 
@@ -1995,9 +2077,17 @@ function AdminPanel({
   onDeleteUser,
   actorRole,
   isSuperAdmin,
+  customers = [],
+  onLoadCustomers,
+  onCreateCustomer,
+  onListAssets,
+  onCreateAsset,
+  onImportAssets,
+  onUpdateAsset,
+  onDeleteAsset,
 }) {
 
-  const customers =
+  const ticketCustomerCount =
     new Set(
       tickets
         .map(
@@ -2039,7 +2129,7 @@ function AdminPanel({
 
         <Stat
           label="Customers with tickets"
-          value={customers}
+          value={ticketCustomerCount}
         />
 
         <Stat
@@ -2117,6 +2207,18 @@ function AdminPanel({
           </button>
         )}
 
+        {isSuperAdmin && (
+          <button
+            className={adminView === 'assets' ? 'filter-active' : ''}
+            onClick={() => {
+              setAdminView('assets')
+              if (customers.length === 0) onLoadCustomers?.()
+            }}
+          >
+            Customers & Assets
+          </button>
+        )}
+
       </div>
 
 
@@ -2182,11 +2284,152 @@ function AdminPanel({
           onCreate={onCreateUser}
           onUpdate={onUpdateUser}
           onDelete={onDeleteUser}
+          customers={customers}
         />
 
       )}
 
+      {adminView === 'assets' && isSuperAdmin && (
+        <CustomerAssetAdministration
+          customers={customers}
+          onLoadCustomers={onLoadCustomers}
+          onCreateCustomer={onCreateCustomer}
+          onListAssets={onListAssets}
+          onCreateAsset={onCreateAsset}
+          onImportAssets={onImportAssets}
+          onUpdateAsset={onUpdateAsset}
+          onDeleteAsset={onDeleteAsset}
+        />
+      )}
+
     </>
+  )
+}
+
+
+/* =========================================================
+   CUSTOMER / ASSET ADMINISTRATION
+========================================================= */
+
+function CustomerAssetAdministration({
+  customers = [],
+  onLoadCustomers,
+  onCreateCustomer,
+  onListAssets,
+  onCreateAsset,
+  onImportAssets,
+  onUpdateAsset,
+  onDeleteAsset,
+}) {
+  const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.customerId || '')
+  const [assets, setAssets] = useState([])
+  const [customerName, setCustomerName] = useState('')
+  const [serialNumber, setSerialNumber] = useState('')
+  const [product, setProduct] = useState('')
+  const [manufacturer, setManufacturer] = useState('')
+  const [model, setModel] = useState('')
+  const [status, setStatus] = useState('Active')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (!selectedCustomerId && customers[0]?.customerId) setSelectedCustomerId(customers[0].customerId)
+  }, [customers, selectedCustomerId])
+
+  const refreshAssets = async (id = selectedCustomerId) => {
+    if (!id) return
+    setBusy(true); setMessage('')
+    try { setAssets(await onListAssets(id)) }
+    catch (error) { setMessage(error?.message || 'Unable to load assets.') }
+    finally { setBusy(false) }
+  }
+
+  useEffect(() => { if (selectedCustomerId) refreshAssets(selectedCustomerId) }, [selectedCustomerId])
+
+  const addCustomer = async (e) => {
+    e.preventDefault()
+    if (!customerName.trim()) return
+    setBusy(true); setMessage('')
+    try { const item = await onCreateCustomer({ customerName: customerName.trim() }); setCustomerName(''); setSelectedCustomerId(item.customerId); setMessage(`Customer ${item.customerName} created.`); await onLoadCustomers?.() }
+    catch (error) { setMessage(error?.message || 'Unable to create customer.') }
+    finally { setBusy(false) }
+  }
+
+  const addAsset = async (e) => {
+    e.preventDefault()
+    if (!selectedCustomerId || !serialNumber.trim()) return
+    setBusy(true); setMessage('')
+    try { await onCreateAsset(selectedCustomerId, { serialNumber: serialNumber.trim(), product, manufacturer, model, status }); setSerialNumber(''); setProduct(''); setManufacturer(''); setModel(''); setMessage('Asset added successfully.'); await refreshAssets() }
+    catch (error) { setMessage(error?.message || 'Unable to add asset.') }
+    finally { setBusy(false) }
+  }
+
+  const importCsv = async (file) => {
+    if (!file || !selectedCustomerId) return
+    setBusy(true); setMessage('')
+    try {
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data, { type: 'array' })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+      const result = await onImportAssets(selectedCustomerId, rows)
+      setMessage(`Import complete: ${result.created || 0} created, ${result.updated || 0} updated${result.errors?.length ? `, ${result.errors.length} rejected` : ''}.`)
+      await refreshAssets()
+    } catch (error) { setMessage(error?.message || 'Unable to import assets.') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <section>
+      <div className="section-head">
+        <div><span className="eyebrow">CUSTOMER & ASSET INVENTORY</span><h2>Customers & Serial Numbers</h2><p>Assign device serial numbers to customers. Customers can only raise tickets against their own active assets.</p></div>
+        <button className="secondary-button" onClick={onLoadCustomers} disabled={busy}>Refresh Customers</button>
+      </div>
+
+      {message && <div className="notice" style={{ marginBottom: '18px' }}>{message}</div>}
+
+      <form className="form-card" onSubmit={addCustomer} style={{ marginBottom: '20px' }}>
+        <h3>Add Customer</h3>
+        <div className="form-grid">
+          <label>Customer Name<input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="ABC Technologies" required /></label>
+          <div className="form-actions" style={{ alignItems: 'end' }}><button className="primary-button" disabled={busy}>Create Customer</button></div>
+        </div>
+      </form>
+
+      <div className="form-card" style={{ marginBottom: '20px' }}>
+        <div className="form-grid">
+          <label>Customer<select value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)}><option value="">Select customer</option>{customers.map((item) => <option key={item.customerId} value={item.customerId}>{item.customerName} ({item.customerId})</option>)}</select></label>
+          <label>Bulk CSV / Excel Import<input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => importCsv(e.target.files?.[0])} disabled={!selectedCustomerId || busy} /><small>Columns: serialNumber, product, manufacturer, model, status</small></label>
+        </div>
+      </div>
+
+      {selectedCustomerId && <form className="form-card" onSubmit={addAsset} style={{ marginBottom: '20px' }}>
+        <h3>Add Serial Number</h3>
+        <div className="form-grid">
+          <label>Serial Number<input value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} required /></label>
+          <label>Product<input value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Laptop" /></label>
+          <label>Manufacturer<input value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} placeholder="Lenovo" /></label>
+          <label>Model<input value={model} onChange={(e) => setModel(e.target.value)} placeholder="ThinkPad T14" /></label>
+          <label>Status<select value={status} onChange={(e) => setStatus(e.target.value)}><option>Active</option><option>Inactive</option></select></label>
+        </div>
+        <div className="form-actions"><button className="primary-button" disabled={busy}>Add Asset</button></div>
+      </form>}
+
+      <div className="table-card">
+        <div className="ticket-table">
+          <div className="table-row table-head"><span>Serial Number</span><span>Product</span><span>Manufacturer / Model</span><span>Status</span><span>Action</span></div>
+          {busy && !assets.length ? <div className="empty-card">Loading assets…</div> : assets.length ? assets.map((asset) => (
+            <div className="table-row" key={asset.serialNumber}>
+              <span><strong>{asset.serialNumber}</strong></span>
+              <span>{asset.product || '—'}</span>
+              <span>{asset.manufacturer || '—'} / {asset.model || '—'}</span>
+              <span><Status value={asset.status || 'Active'} /></span>
+              <span><button className="secondary-button" onClick={async () => { if (window.confirm(`Delete ${asset.serialNumber}?`)) { await onDeleteAsset(selectedCustomerId, asset.serialNumber); await refreshAssets() } }}>Delete</button></span>
+            </div>
+          )) : <div className="empty-card">No assets assigned to this customer.</div>}
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -2204,6 +2447,7 @@ function UserAdministration({
   onCreate,
   onUpdate,
   onDelete,
+  customers = [],
 }) {
 
   const [showCreate, setShowCreate] =
@@ -2217,6 +2461,7 @@ function UserAdministration({
       email: '',
       role: 'Customers',
       temporaryPassword: '',
+      customerId: '',
     })
 
   const [actionUser, setActionUser] =
@@ -2227,6 +2472,7 @@ function UserAdministration({
       email: '',
       role: 'Customers',
       temporaryPassword: '',
+      customerId: '',
     })
   }
 
@@ -2241,6 +2487,10 @@ function UserAdministration({
       return
     }
 
+    if (form.role === 'Customers' && !form.customerId) {
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -2248,6 +2498,7 @@ function UserAdministration({
         email: form.email.trim().toLowerCase(),
         role: form.role,
         temporaryPassword: form.temporaryPassword,
+        ...(form.role === 'Customers' ? { customerId: form.customerId } : {}),
       })
 
       resetForm()
@@ -2366,6 +2617,24 @@ function UserAdministration({
               </select>
             </label>
 
+            {form.role === 'Customers' && (
+              <label>
+                Customer
+                <select
+                  value={form.customerId}
+                  onChange={(e) => setForm({ ...form, customerId: e.target.value })}
+                  required
+                >
+                  <option value="">Select customer</option>
+                  {customers.filter((item) => String(item.status || 'Active').toLowerCase() === 'active').map((item) => (
+                    <option key={item.customerId} value={item.customerId}>
+                      {item.customerName} ({item.customerId})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <label>
               Temporary Password
               <input
@@ -2426,6 +2695,7 @@ function UserAdministration({
             <div className="table-row table-head">
               <span>Email</span>
               <span>Role</span>
+              <span>Customer</span>
               <span>Status</span>
               <span>Cognito Status</span>
               <span>Created</span>
@@ -2442,6 +2712,7 @@ function UserAdministration({
                 setActionUser={setActionUser}
                 onUpdate={onUpdate}
                 onDelete={onDelete}
+                customers={customers}
               />
             ))}
           </div>
@@ -2464,6 +2735,7 @@ function UserRow({
   setActionUser,
   onUpdate,
   onDelete,
+  customers = [],
 }) {
 
   const [showResetPassword, setShowResetPassword] =
@@ -2561,6 +2833,10 @@ function UserRow({
         <strong>
           {userRole}
         </strong>
+      </span>
+
+      <span>
+        {user.customerId || '—'}
       </span>
 
       <span>
@@ -2765,6 +3041,20 @@ function UserRow({
                   value={role}
                 >
                   {role}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {isSuperAdmin && userRole === 'Customers' && (
+            <select
+              value={user.customerId || ''}
+              onChange={(e) => onUpdate(user.username, { role: 'Customers', customerId: e.target.value })}
+            >
+              <option value="">Select customer</option>
+              {customers.map((item) => (
+                <option key={item.customerId} value={item.customerId}>
+                  {item.customerName} ({item.customerId})
                 </option>
               ))}
             </select>
