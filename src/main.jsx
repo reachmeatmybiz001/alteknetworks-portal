@@ -1427,6 +1427,13 @@ function TicketTable({
 function formatIdentity(value, fallback = '—') {
   const text = String(value || '').trim()
   if (!text) return fallback
+
+  // Never expose raw Cognito UUID/sub values in the portal UI.
+  // The backend normally resolves these to an email address; this is a safe
+  // frontend fallback for older records or during a partial deployment.
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)
+  if (isUuid) return 'Portal user'
+
   return text
 }
 
