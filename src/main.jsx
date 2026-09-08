@@ -1050,7 +1050,7 @@ function Dashboard({
         <div>
 
           <span className="eyebrow">
-            CUSTOMER DASHBOARD
+            {isAdmin ? 'ADMIN DASHBOARD' : 'CUSTOMER DASHBOARD'}
           </span>
 
           <h1>
@@ -1439,8 +1439,7 @@ function TicketTable({
 function formatIdentity(value, fallback = '—') {
   const text = String(value || '').trim()
   if (!text) return fallback
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)
-  return isUuid ? fallback : text
+  return text
 }
 
 /* =========================================================

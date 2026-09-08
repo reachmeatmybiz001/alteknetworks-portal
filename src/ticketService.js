@@ -124,6 +124,37 @@ export async function uploadTicketAttachment(id, file) {
       body: file,
     })
   } catch (error) {
+    // S3 CORS can fail before the browser exposes the PUT response. For files
+    // up to 7 MB, fall back to the authenticated API so the attachment can
+    // still be stored in S3 without relying on browser-to-S3 CORS.
+    if (file.size <= 7 * 1024 * 1024) {
+      const dataBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = String(reader.result || '')
+          resolve(result.includes(',') ? result.split(',')[1] : result)
+        }
+        reader.onerror = () => reject(new Error('Unable to read the selected file.'))
+        reader.readAsDataURL(file)
+      })
+
+      try {
+        return await apiJson(`/tickets/${encodeURIComponent(id)}/attachments/upload`, {
+          method: 'POST',
+          body: JSON.stringify({
+            fileName: file.name,
+            contentType: file.type || 'application/octet-stream',
+            size: file.size,
+            dataBase64,
+          }),
+        })
+      } catch (fallbackError) {
+        throw new Error(
+          `Unable to upload ${file.name}. Direct S3 upload and API fallback both failed. ${fallbackError?.message || ''}`.trim()
+        )
+      }
+    }
+
     const message = error?.message || 'Network/CORS error'
     throw new Error(
       `Unable to upload ${file.name}. S3 upload failed (${message}). Make sure the deployed backend created the attachment bucket and its CORS policy allows https://portal.alteknetworks.com.`
