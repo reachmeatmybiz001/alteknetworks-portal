@@ -749,7 +749,7 @@ function App() {
     return <LoginScreen />
   }
 
-  if (registration === undefined) {
+  if (!registration) {
     return <div className="loading-screen">Checking account approval…</div>
   }
 
