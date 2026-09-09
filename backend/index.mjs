@@ -566,9 +566,10 @@ async function validateTicketSerial(event) {
   // the browser. The customer is derived from the authenticated Cognito user.
   let customerId = ''
   if (currentRole === 'Customers') {
-    const c = claims(event)
-    customerId = String(c['custom:customerId'] || '').trim()
-    if (!customerId) customerId = await getAuthenticatedCustomerId(event)
+    // Always resolve the customer's current association from Cognito.
+    // Do NOT trust custom:customerId from the browser JWT because the token
+    // can contain an older value after an admin changes the assignment.
+    customerId = await getAuthenticatedCustomerId(event)
   } else {
     customerId = String(body.customerId || '').trim()
     if (!customerId && body.customerEmail) {
