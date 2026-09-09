@@ -274,6 +274,40 @@ async function getCustomerIdForUsername(username) {
     .find((item) => item.Name === 'custom:customerId')?.Value || ''
 }
 
+async function getRegistrationProfile(username) {
+  if (!username) throw Object.assign(new Error('Authenticated username is required'), { statusCode: 401 })
+  const result = await cognito.send(new AdminGetUserCommand({
+    UserPoolId: USER_POOL_ID,
+    Username: username,
+  }))
+  const attrs = result.UserAttributes || []
+  const groups = await getUserGroups(username)
+  const customerId = attrs.find((item) => item.Name === 'custom:customerId')?.Value || ''
+  const companyName = attrs.find((item) => item.Name === 'custom:companyName')?.Value || ''
+  const email = attrs.find((item) => item.Name === 'email')?.Value || username
+  const emailVerified = attrs.find((item) => item.Name === 'email_verified')?.Value === 'true'
+  const approved = groups.includes('Customers') || groups.includes('SupportAdmins') || groups.includes('SuperAdmins')
+  const isAdmin = groups.includes('SupportAdmins') || groups.includes('SuperAdmins')
+  return {
+    username: result.Username || username,
+    email,
+    companyName,
+    customerId,
+    emailVerified,
+    enabled: result.Enabled !== false,
+    cognitoStatus: result.UserStatus || '',
+    groups,
+    role: groups.includes('SuperAdmins') ? 'SuperAdmins' : groups.includes('SupportAdmins') ? 'SupportAdmins' : groups.includes('Customers') ? 'Customers' : emailVerified ? 'PendingApproval' : 'PendingVerification',
+    approvalStatus: approved ? 'Approved' : emailVerified ? 'PendingApproval' : 'EmailVerificationPending',
+    isAdmin,
+  }
+}
+
+async function getMyRegistrationStatus(event) {
+  const username = await getCognitoUsername(event)
+  return response(200, await getRegistrationProfile(username))
+}
+
 async function getAuthenticatedCustomerId(event) {
   if (role(event) !== 'Customers') return ''
   const username = await getCognitoUsername(event)
@@ -506,16 +540,35 @@ async function listAllUsers() {
   } while (token)
 
   return Promise.all(
-    users.map(async (user) => ({
-      username: user.Username,
-      email: (user.Attributes || []).find((a) => a.Name === 'email')?.Value || user.Username,
-      enabled: user.Enabled !== false,
-      status: user.UserStatus,
-      role: await getUserRole(user.Username),
-      customerId: (user.Attributes || []).find((a) => a.Name === 'custom:customerId')?.Value || '',
-      createdAt: user.UserCreateDate,
-      lastModifiedAt: user.UserLastModifiedDate,
-    }))
+    users.map(async (user) => {
+      const attrs = user.Attributes || []
+      const userGroups = await getUserGroups(user.Username)
+      const customerId = attrs.find((a) => a.Name === 'custom:customerId')?.Value || ''
+      const companyName = attrs.find((a) => a.Name === 'custom:companyName')?.Value || ''
+      const emailVerified = attrs.find((a) => a.Name === 'email_verified')?.Value === 'true'
+      const role = userGroups.includes('SuperAdmins')
+        ? 'SuperAdmins'
+        : userGroups.includes('SupportAdmins')
+          ? 'SupportAdmins'
+          : userGroups.includes('Customers')
+            ? 'Customers'
+            : emailVerified
+              ? 'PendingApproval'
+              : 'PendingVerification'
+      return {
+        username: user.Username,
+        email: attrs.find((a) => a.Name === 'email')?.Value || user.Username,
+        companyName,
+        emailVerified,
+        enabled: user.Enabled !== false,
+        status: user.UserStatus,
+        role,
+        approvalStatus: role === 'PendingApproval' ? 'PendingApproval' : role === 'PendingVerification' ? 'EmailVerificationPending' : 'Approved',
+        customerId,
+        createdAt: user.UserCreateDate,
+        lastModifiedAt: user.UserLastModifiedDate,
+      }
+    })
   )
 }
 
@@ -937,6 +990,52 @@ async function createUser(event) {
 async function updateUser(event, username) {
   requireRole(event, ['SuperAdmins'])
   const body = parseBody(event)
+
+  if (body.action === 'approve') {
+    const customerId = String(body.customerId || '').trim()
+    if (!customerId) throw Object.assign(new Error('Customer is required for approval'), { statusCode: 400 })
+    await requireActiveCustomer(customerId)
+    const currentGroups = await getUserGroups(username)
+    for (const groupName of currentGroups) {
+      if (ROLES.includes(groupName)) {
+        await cognito.send(new AdminRemoveUserFromGroupCommand({
+          UserPoolId: USER_POOL_ID,
+          Username: username,
+          GroupName: groupName,
+        }))
+      }
+    }
+    await cognito.send(new AdminUpdateUserAttributesCommand({
+      UserPoolId: USER_POOL_ID,
+      Username: username,
+      UserAttributes: [
+        { Name: 'custom:customerId', Value: customerId },
+      ],
+    }))
+    await cognito.send(new AdminAddUserToGroupCommand({
+      UserPoolId: USER_POOL_ID,
+      Username: username,
+      GroupName: 'Customers',
+    }))
+    await cognito.send(new AdminEnableUserCommand({ UserPoolId: USER_POOL_ID, Username: username }))
+    return response(200, { username, role: 'Customers', customerId, approvalStatus: 'Approved', message: 'Customer registration approved.' })
+  }
+
+  if (body.action === 'reject') {
+    const currentGroups = await getUserGroups(username)
+    for (const groupName of currentGroups) {
+      if (ROLES.includes(groupName)) {
+        await cognito.send(new AdminRemoveUserFromGroupCommand({
+          UserPoolId: USER_POOL_ID,
+          Username: username,
+          GroupName: groupName,
+        }))
+      }
+    }
+    await cognito.send(new AdminDisableUserCommand({ UserPoolId: USER_POOL_ID, Username: username }))
+    return response(200, { username, approvalStatus: 'Rejected', message: 'Customer registration rejected and account disabled.' })
+  }
+
   const currentRole = await getUserRole(username)
   const newRole = body.role !== undefined ? String(body.role) : currentRole
 
@@ -1013,6 +1112,10 @@ export async function handler(event) {
     const path = event?.rawPath || event?.requestContext?.http?.path || event?.path || ''
 
     if (method === 'OPTIONS') return response(204, {})
+
+    if (method === 'GET' && path.endsWith('/me')) {
+      return getMyRegistrationStatus(event)
+    }
 
     if (method === 'GET' && path.endsWith('/customers')) {
       return listCustomers(event)
