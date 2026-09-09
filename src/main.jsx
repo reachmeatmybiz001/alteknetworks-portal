@@ -1679,7 +1679,7 @@ function NewTicket({
       setSerialAsset(result)
     } catch (error) {
       setSerialAsset(null)
-      setSerialError(error?.message || 'Serial number is not valid for your account.')
+      setSerialError(error?.message || 'Asset serial number is not registered for your account.')
     } finally {
       setSerialChecking(false)
     }
