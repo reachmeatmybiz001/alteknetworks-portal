@@ -348,7 +348,7 @@ async function validateSerialForCustomer(serialNumber, customerId, reveal = fals
   if (!serial) throw Object.assign(new Error('Serial number is required'), { statusCode: 400 })
   const asset = await getAsset(serial)
   if (!asset || String(asset.customerId || '') !== String(customerId) || String(asset.status || 'Active').toLowerCase() !== 'active') {
-    throw Object.assign(new Error(reveal ? 'Serial number is not valid for this customer' : 'Serial number not found'), { statusCode: 404 })
+    throw Object.assign(new Error('Asset serial number is not registered for your account.'), { statusCode: 404 })
   }
   return asset
 }
