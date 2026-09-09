@@ -136,3 +136,46 @@ serialNumber,product,manufacturer,model,status
 ```
 
 Maximum import size is 1000 rows per request.
+
+## Customer Self-Registration + Super Admin Approval
+
+This release adds a customer self-registration flow:
+
+1. Customer clicks **Create Customer Account** on the portal.
+2. Customer registers with an email address and password.
+3. Cognito sends an email verification OTP.
+4. Customer enters the OTP in the portal.
+5. The account remains **Pending Approval** because it has no portal group yet.
+6. Super Admin opens **Admin → User Administration**, selects an active customer, and clicks **Approve Customer**.
+7. Backend assigns the Cognito `Customers` group and the authoritative `custom:customerId` attribute.
+8. Customer can then sign in and use tickets/assets belonging to the assigned customer.
+
+### Cognito User Pool settings
+
+Enable self-service sign-up in the `ALTEKNET-CUSTOMER-PORTAL` user pool. Configure email as the sign-in identifier and require email verification/confirmation. The SPA uses the Cognito confirmation-code flow for the email OTP.
+
+Keep `custom:customerId` **Read enabled / Write disabled** for the SPA client. The browser must never be allowed to set or change a customer's `custom:customerId`.
+
+### API Gateway
+
+Add the following JWT-protected route using the existing Lambda integration and Cognito authorizer:
+
+- `GET /me`
+
+The frontend uses `/me` after login to determine whether the account is `PendingApproval` or `Approved`.
+
+### Approval behavior
+
+`PATCH /admin/users/{username}` accepts:
+
+```json
+{"action":"approve","customerId":"CUST-0001"}
+```
+
+or, if needed, Super Admin can reject a pending registration with:
+
+```json
+{"action":"reject"}
+```
+
+Reject disables the Cognito account. Approval requires an active customer record and sets the customer's `custom:customerId` server-side.
