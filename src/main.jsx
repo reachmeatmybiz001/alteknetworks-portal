@@ -1681,6 +1681,11 @@ function NewTicket({
     setSerialError('')
     try {
       const result = await validateTicketSerial(form.serialNumber.trim(), '', isAdmin ? form.customerEmail.trim() : '')
+      if (result?.valid === false) {
+        setSerialAsset(null)
+        setSerialError(result.message || 'Asset serial number is not registered for your account.')
+        return
+      }
       setSerialAsset(result)
     } catch (error) {
       setSerialAsset(null)
