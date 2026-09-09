@@ -26,6 +26,42 @@ import {
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb'
 
+
+const PUBLIC_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.in', 'yahoo.co.uk',
+  'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'icloud.com', 'me.com',
+  'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'zoho.com', 'gmx.com',
+  'mail.com', 'yandex.com', 'yandex.ru', 'rediffmail.com', 'rediff.com',
+])
+
+function allowedCorporateEmail(email) {
+  const value = String(email || '').trim().toLowerCase()
+  const domain = value.split('@')[1] || ''
+  const allowlist = String(process.env.ALLOWED_EMAIL_DOMAINS || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase().replace(/^@/, ''))
+    .filter(Boolean)
+
+  if (!domain) return false
+  if (allowlist.length > 0) return allowlist.includes(domain)
+  return !PUBLIC_EMAIL_DOMAINS.has(domain)
+}
+
+async function handleCognitoPreSignUp(event) {
+  const email = String(event?.request?.userAttributes?.email || '').trim().toLowerCase()
+  if (!allowedCorporateEmail(email)) {
+    const allowlist = String(process.env.ALLOWED_EMAIL_DOMAINS || '')
+      .split(',')
+      .map((item) => item.trim().toLowerCase().replace(/^@/, ''))
+      .filter(Boolean)
+    if (allowlist.length > 0) {
+      throw new Error('Please use an approved corporate email address.')
+    }
+    throw new Error('Personal email addresses are not allowed. Please use your corporate email address.')
+  }
+  return event
+}
+
 const REGION = process.env.AWS_REGION || 'ap-south-1'
 const USER_POOL_ID = process.env.USER_POOL_ID
 const TICKETS_TABLE = process.env.TICKETS_TABLE
@@ -262,6 +298,20 @@ async function getCognitoUsername(event) {
     c.sub ||
     ''
   ).trim()
+}
+
+async function getCustomerIdForEmail(email) {
+  const normalized = String(email || '').trim().toLowerCase()
+  if (!normalized) return ''
+  const result = await cognito.send(new ListUsersCommand({
+    UserPoolId: USER_POOL_ID,
+    Filter: `email = \"${normalized.replace(/\\/g, '\\\\').replace(/\"/g, '\\\"')}\"`,
+    Limit: 1,
+  }))
+  const user = (result.Users || [])[0]
+  if (!user) return ''
+  return (user.Attributes || [])
+    .find((item) => item.Name === 'custom:customerId')?.Value || ''
 }
 
 async function getCustomerIdForUsername(username) {
@@ -504,10 +554,18 @@ async function validateTicketSerial(event) {
   const currentRole = role(event)
   const body = parseBody(event)
   const serialNumber = String(body.serialNumber || '').trim()
-  const customerId = currentRole === 'Customers'
+  let customerId = currentRole === 'Customers'
     ? await getAuthenticatedCustomerId(event)
     : String(body.customerId || '').trim()
-  if (!customerId) throw Object.assign(new Error('Customer ID is required'), { statusCode: 400 })
+  if (currentRole !== 'Customers' && !customerId && body.customerEmail) {
+    customerId = await getCustomerIdForEmail(body.customerEmail)
+    if (!customerId) {
+      throw Object.assign(new Error('Customer email is not associated with an approved customer account.'), { statusCode: 404 })
+    }
+  }
+  if (!customerId) {
+    throw Object.assign(new Error(currentRole === 'Customers' ? 'Customer account is not associated with a customer record.' : 'Customer email or customer ID is required.'), { statusCode: 400 })
+  }
   if (currentRole !== 'Customers') await requireActiveCustomer(customerId)
   const asset = await validateSerialForCustomer(serialNumber, customerId, currentRole !== 'Customers')
   return response(200, {
@@ -1107,6 +1165,12 @@ async function deleteUser(event, username) {
 }
 
 export async function handler(event) {
+  // The same Lambda can be used for both API Gateway and Cognito Pre Sign-up.
+  // Cognito trigger events have triggerSource; API Gateway events do not.
+  if (event?.triggerSource?.startsWith('PreSignUp_')) {
+    return handleCognitoPreSignUp(event)
+  }
+
   try {
     const method = (event?.requestContext?.http?.method || event?.httpMethod || 'GET').toUpperCase()
     const path = event?.rawPath || event?.requestContext?.http?.path || event?.path || ''
