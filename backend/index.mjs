@@ -27,38 +27,9 @@ import {
 } from '@aws-sdk/lib-dynamodb'
 
 
-const PUBLIC_EMAIL_DOMAINS = new Set([
-  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.in', 'yahoo.co.uk',
-  'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'icloud.com', 'me.com',
-  'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'zoho.com', 'gmx.com',
-  'mail.com', 'yandex.com', 'yandex.ru', 'rediffmail.com', 'rediff.com',
-])
-
-function allowedCorporateEmail(email) {
-  const value = String(email || '').trim().toLowerCase()
-  const domain = value.split('@')[1] || ''
-  const allowlist = String(process.env.ALLOWED_EMAIL_DOMAINS || '')
-    .split(',')
-    .map((item) => item.trim().toLowerCase().replace(/^@/, ''))
-    .filter(Boolean)
-
-  if (!domain) return false
-  if (allowlist.length > 0) return allowlist.includes(domain)
-  return !PUBLIC_EMAIL_DOMAINS.has(domain)
-}
-
+// Email-domain restrictions are intentionally disabled. Any valid email can register.
+// Portal access is controlled separately by Super Admin approval.
 async function handleCognitoPreSignUp(event) {
-  const email = String(event?.request?.userAttributes?.email || '').trim().toLowerCase()
-  if (!allowedCorporateEmail(email)) {
-    const allowlist = String(process.env.ALLOWED_EMAIL_DOMAINS || '')
-      .split(',')
-      .map((item) => item.trim().toLowerCase().replace(/^@/, ''))
-      .filter(Boolean)
-    if (allowlist.length > 0) {
-      throw new Error('Please use an approved corporate email address.')
-    }
-    throw new Error('Personal email addresses are not allowed. Please use your corporate email address.')
-  }
   return event
 }
 
@@ -566,10 +537,9 @@ async function validateTicketSerial(event) {
   // the browser. The customer is derived from the authenticated Cognito user.
   let customerId = ''
   if (currentRole === 'Customers') {
-    // Always resolve the customer's current association from Cognito.
-    // Do NOT trust custom:customerId from the browser JWT because the token
-    // can contain an older value after an admin changes the assignment.
-    customerId = await getAuthenticatedCustomerId(event)
+    const c = claims(event)
+    customerId = String(c['custom:customerId'] || '').trim()
+    if (!customerId) customerId = await getAuthenticatedCustomerId(event)
   } else {
     customerId = String(body.customerId || '').trim()
     if (!customerId && body.customerEmail) {
