@@ -1681,9 +1681,12 @@ function NewTicket({
     setSerialError('')
     try {
       const result = await validateTicketSerial(form.serialNumber.trim(), '', isAdmin ? form.customerEmail.trim() : '')
-      if (result?.valid === false) {
+      // Treat anything other than an explicit, complete successful validation
+      // as a validation failure. This prevents an incomplete/legacy API response
+      // from being rendered as "Valid asset: — · — · —".
+      if (result?.valid !== true || !result?.serialNumber || !result?.customerId) {
         setSerialAsset(null)
-        setSerialError(result.message || 'Asset serial number is not registered for your account.')
+        setSerialError(result?.message || 'Asset serial number is not registered for your account.')
         return
       }
       setSerialAsset(result)
