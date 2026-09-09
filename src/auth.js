@@ -1,6 +1,9 @@
 import { Amplify } from 'aws-amplify'
 import {
   confirmSignIn,
+  signUp,
+  confirmSignUp,
+  resendSignUpCode,
   fetchAuthSession,
   getCurrentUser,
   signIn,
@@ -38,7 +41,30 @@ Amplify.configure({
 const authEvents = (callback) => Hub.listen('auth', callback)
 
 const login = async (email, password) => {
-  return signIn({ username: email.trim(), password })
+  return signIn({ username: email.trim().toLowerCase(), password })
+}
+
+const register = async (email, password) => {
+  return signUp({
+    username: email.trim().toLowerCase(),
+    password,
+    options: {
+      userAttributes: {
+        email: email.trim().toLowerCase(),
+      },
+    },
+  })
+}
+
+const confirmRegistration = async (email, code) => {
+  return confirmSignUp({
+    username: email.trim().toLowerCase(),
+    confirmationCode: code.trim(),
+  })
+}
+
+const resendRegistrationCode = async (email) => {
+  return resendSignUpCode({ username: email.trim().toLowerCase() })
 }
 
 const logout = async () => {
@@ -70,8 +96,14 @@ export {
   currentUser,
   currentUser as currentAuth,
   login,
+  register,
+  confirmRegistration,
+  resendRegistrationCode,
   logout,
   confirmSignIn,
+  signUp,
+  confirmSignUp,
+  resendSignUpCode,
   ROLES,
   primaryRole,
   isAdminRole,

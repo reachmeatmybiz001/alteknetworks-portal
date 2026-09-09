@@ -7,6 +7,9 @@ import {
   login,
   logout,
   confirmSignIn,
+  register,
+  confirmRegistration,
+  resendRegistrationCode,
 } from './auth'
 
 import {
@@ -35,11 +38,13 @@ import {
   importCustomerAssets,
   updateCustomerAsset,
   deleteCustomerAsset,
+  getMyRegistrationStatus,
 } from './api'
 
 import * as XLSX from 'xlsx'
 
 import './styles.css'
+import { corporateEmailError } from './emailPolicy'
 
 
 const categories = [
@@ -90,335 +95,250 @@ function Logo({ compact = false }) {
 ========================================================= */
 
 function LoginScreen() {
+  const [mode, setMode] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [verificationCode, setVerificationCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [loginError, setLoginError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [challenge, setChallenge] = useState('')
 
-  const [submitting, setSubmitting] =
-    useState(false)
+  const clearMessages = () => {
+    setLoginError('')
+    setNotice('')
+  }
 
-  const [loginError, setLoginError] =
-    useState('')
-
-  const [challenge, setChallenge] =
-    useState('')
-
-  const [newPassword, setNewPassword] =
-    useState('')
-
-  const [confirmNewPassword, setConfirmNewPassword] =
-    useState('')
-
+  const switchMode = (nextMode) => {
+    clearMessages()
+    setMode(nextMode)
+    setChallenge('')
+    setVerificationCode('')
+  }
 
   const submit = async (e) => {
     e.preventDefault()
-
-    setLoginError('')
-
+    clearMessages()
     if (!email.trim() || !password) {
-      setLoginError(
-        'Please enter your email address and password.'
-      )
+      setLoginError('Please enter your email address and password.')
       return
     }
-
     setSubmitting(true)
-
     try {
-      const nextStep = await login(
-        email.trim(),
-        password
-      )
-
-      if (
-        nextStep?.nextStep?.signInStep ===
-        'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED'
-      ) {
+      const nextStep = await login(email.trim(), password)
+      if (nextStep?.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
         setChallenge('NEW_PASSWORD_REQUIRED')
         return
       }
-
-      if (
-        nextStep?.nextStep?.signInStep &&
-        nextStep.nextStep.signInStep !== 'DONE'
-      ) {
-        setLoginError(
-          'Additional account verification is required. Please contact your administrator.'
-        )
+      if (nextStep?.nextStep?.signInStep && nextStep.nextStep.signInStep !== 'DONE') {
+        setLoginError('Additional account verification is required. Please complete the requested step.')
         return
       }
-
       window.location.reload()
-
     } catch (error) {
-      const message =
-        error?.message ||
-        'Unable to sign in. Please check your email address and password.'
-
-      if (
-        message.includes(
-          'Incorrect username or password'
-        )
-      ) {
-        setLoginError(
-          'Incorrect email address or password. Please try again.'
-        )
-
-      } else if (
-        message.includes('User does not exist')
-      ) {
-        setLoginError(
-          'No portal account was found for this email address.'
-        )
-
-      } else if (
-        message.includes('User is not confirmed')
-      ) {
-        setLoginError(
-          'Your portal account is not confirmed. Please contact your administrator.'
-        )
-
+      const message = error?.message || 'Unable to sign in. Please check your email address and password.'
+      if (message.includes('User is not confirmed')) {
+        setLoginError('Please verify your email address with the OTP sent to you before signing in.')
+      } else if (message.includes('Incorrect username or password')) {
+        setLoginError('Incorrect email address or password. Please try again.')
+      } else if (message.includes('User does not exist')) {
+        setLoginError('No portal account was found for this email address.')
       } else {
         setLoginError(message)
       }
-
     } finally {
       setSubmitting(false)
     }
   }
 
+  const [newPassword, setNewPassword] = useState('')
 
-  const submitNewPassword = async (e) => {
+  const handleNewPassword = async (e) => {
     e.preventDefault()
-
-    setLoginError('')
-
-    if (!newPassword) {
-      setLoginError(
-        'Please enter a new password.'
-      )
+    clearMessages()
+    if (!newPassword || !confirmPassword) {
+      setLoginError('Please enter and confirm your new password.')
       return
     }
-
-    if (!confirmNewPassword) {
-      setLoginError(
-        'Please confirm your new password.'
-      )
+    if (newPassword !== confirmPassword) {
+      setLoginError('New password and confirm password do not match.')
       return
     }
-
-    if (newPassword !== confirmNewPassword) {
-      setLoginError(
-        'New password and confirm password do not match.'
-      )
-      return
-    }
-
     setSubmitting(true)
-
     try {
-      await confirmSignIn({
-        challengeResponse: newPassword,
-      })
-
+      await confirmSignIn({ challengeResponse: newPassword })
       setChallenge('')
       setNewPassword('')
-      setConfirmNewPassword('')
-
+      setConfirmPassword('')
       window.location.reload()
-
     } catch (error) {
-      setLoginError(
-        error?.message ||
-        'Unable to set the new password. Please try again.'
-      )
-
+      setLoginError(error?.message || 'Unable to set the new password. Please try again.')
     } finally {
       setSubmitting(false)
     }
   }
 
+  const submitRegistration = async (e) => {
+    e.preventDefault()
+    clearMessages()
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail || !password || !confirmPassword) {
+      setLoginError('Please complete all registration fields.')
+      return
+    }
+    const emailPolicyError = corporateEmailError(normalizedEmail)
+    if (emailPolicyError) {
+      setLoginError(emailPolicyError)
+      return
+    }
+    if (password !== confirmPassword) {
+      setLoginError('Passwords do not match.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const result = await register(normalizedEmail, password)
+      if (result?.nextStep?.signUpStep === 'CONFIRM_SIGN_UP') {
+        setMode('verify')
+        setNotice(`We sent a verification OTP to ${normalizedEmail}. Enter it below to verify your email.`)
+      } else {
+        setMode('login')
+        setNotice('Registration submitted. Please sign in after your email is verified and your account is approved.')
+      }
+    } catch (error) {
+      const message = error?.message || 'Unable to register this account.'
+      if (message.includes('UsernameExistsException') || message.includes('already exists')) {
+        setLoginError('An account with this email already exists. Try signing in or verify the email if registration is still pending.')
+      } else {
+        setLoginError(message)
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const submitVerification = async (e) => {
+    e.preventDefault()
+    clearMessages()
+    if (!verificationCode.trim()) {
+      setLoginError('Please enter the OTP sent to your email.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await confirmRegistration(email.trim().toLowerCase(), verificationCode)
+      setMode('login')
+      setPassword('')
+      setConfirmPassword('')
+      setVerificationCode('')
+      setNotice('Email verified successfully. Your registration is now pending approval by the Super Admin. You will be able to use the portal after your account is approved.')
+    } catch (error) {
+      setLoginError(error?.message || 'Unable to verify the email address. Please check the OTP and try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const resendCode = async () => {
+    clearMessages()
+    setSubmitting(true)
+    try {
+      await resendRegistrationCode(email.trim().toLowerCase())
+      setNotice('A new verification OTP has been sent to your email address.')
+    } catch (error) {
+      setLoginError(error?.message || 'Unable to resend the verification OTP.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <div className="login-page">
-
       <div className="login-card">
-
-        <div className="login-brand">
-          <Logo />
-        </div>
-
-
+        <div className="login-brand"><Logo /></div>
         <div className="login-copy">
-
-          <span className="eyebrow">
-            CUSTOMER SUPPORT PORTAL
-          </span>
-
-          <h1>
-            Welcome to your IT support portal
-          </h1>
-
+          <span className="eyebrow">CUSTOMER SUPPORT PORTAL</span>
+          <h1>{mode === 'register' ? 'Create your customer account' : mode === 'verify' ? 'Verify your email' : 'Welcome to your IT support portal'}</h1>
           <p>
-            Sign in to raise service requests,
-            track incidents and stay connected
-            with the ALTEKNETWORKS support team.
+            {mode === 'register'
+              ? 'Register your company email to request access to the ALTEKNETWORKS support portal.'
+              : mode === 'verify'
+                ? 'Enter the one-time password sent to your email address.'
+                : 'Sign in to raise service requests, track incidents and stay connected with the ALTEKNETWORKS support team.'}
           </p>
-
         </div>
 
+        {loginError && <div className="login-error" role="alert">{loginError}</div>}
+        {notice && <div className="login-notice" role="status">{notice}</div>}
 
-        {loginError && (
-          <div
-            className="login-error"
-            role="alert"
-          >
-            {loginError}
+        {mode === 'verify' ? (
+          <form className="login-form" onSubmit={submitVerification}>
+            <label>Email Address<input type="email" value={email} readOnly /></label>
+            <label>Verification OTP<input inputMode="numeric" autoComplete="one-time-code" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value)} placeholder="Enter 6-digit OTP" maxLength={10} required autoFocus /></label>
+            <button className="primary-button full" disabled={submitting}>{submitting ? 'Verifying…' : 'Verify Email'}</button>
+            <div className="login-secondary-actions">
+              <button type="button" className="text-button" onClick={resendCode} disabled={submitting}>Resend OTP</button>
+              <button type="button" className="text-button" onClick={() => switchMode('login')}>Back to Sign In</button>
+            </div>
+          </form>
+        ) : mode === 'register' ? (
+          <form className="login-form" onSubmit={submitRegistration}>
+            <label>Business Email Address<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="username" required /></label>
+            <label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Create a password" autoComplete="new-password" required /><button type="button" className="password-toggle" onClick={() => setShowPassword((v) => !v)}>{showPassword ? 'Hide' : 'Show'}</button></div></label>
+            <label>Confirm Password<input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm your password" autoComplete="new-password" required /></label>
+            <button className="primary-button full" disabled={submitting}>{submitting ? 'Registering…' : 'Create Customer Account'}</button>
+            <p className="login-help">Use your corporate email only. After registration, verify the OTP sent to your email. Your registration will then be marked <strong>Pending Approval with Admin</strong> until a Super Admin approves it.</p>
+            <button type="button" className="text-button" onClick={() => switchMode('login')}>Already registered? Sign In</button>
+          </form>
+        ) : challenge === 'NEW_PASSWORD_REQUIRED' ? (
+          <form className="login-form" onSubmit={handleNewPassword}>
+            <label>New Password<input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter a new password" autoComplete="new-password" autoFocus required /></label>
+            <label>Confirm New Password<input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm your new password" autoComplete="new-password" required /></label>
+            <button className="primary-button full" disabled={submitting}>{submitting ? 'Updating…' : 'Set New Password'}</button>
+          </form>
+        ) : (
+          <form className="login-form" onSubmit={submit}>
+            <label>Email Address<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="username" autoFocus required /></label>
+            <label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" autoComplete="current-password" required /><button type="button" className="password-toggle" onClick={() => setShowPassword((v) => !v)}>{showPassword ? 'Hide' : 'Show'}</button></div></label>
+            <button className="primary-button full" disabled={submitting}>{submitting ? 'Signing in…' : 'Sign In'}</button>
+            <div className="login-divider"><span>Customer access</span></div>
+            <button type="button" className="secondary-button full" onClick={() => switchMode('register')}>Create Customer Account</button>
+            <p className="login-help">New customer? Register with your corporate email, verify the OTP, and wait for Super Admin approval.</p>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+function ApprovalPendingScreen({ user, rejected = false, errorMessage = '', onRefresh }) {
+  return (
+    <div className="login-page">
+      <div className="login-card approval-card">
+        <div className="login-brand"><Logo /></div>
+        <div className="login-copy">
+          <span className="eyebrow">CUSTOMER ACCOUNT</span>
+          <h1>{rejected ? 'Registration not approved' : errorMessage ? 'Account status unavailable' : 'Approval pending'}</h1>
+          <p>
+            {rejected
+              ? 'Your customer portal registration was not approved. Please contact ALTEKNETWORKS support for assistance.'
+              : errorMessage
+                ? errorMessage
+                : 'Your email has been verified. Your registration is now Pending Approval with Admin. A Super Admin must review your registration and assign your company account before you can use the support portal.'}
+          </p>
+        </div>
+        {!rejected && !errorMessage && (
+          <div className="approval-status-box">
+            <strong>{user?.email}</strong>
+            <span>Email verified · Waiting for Super Admin approval</span>
           </div>
         )}
-
-
-        {challenge === 'NEW_PASSWORD_REQUIRED' ? (
-
-          <form
-            className="login-form"
-            onSubmit={submitNewPassword}
-          >
-
-            <label>
-              New Password
-
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) =>
-                  setNewPassword(e.target.value)
-                }
-                placeholder="Enter a new password"
-                autoComplete="new-password"
-                autoFocus
-                required
-              />
-
-            </label>
-
-
-            <label>
-              Confirm New Password
-
-              <input
-                type="password"
-                value={confirmNewPassword}
-                onChange={(e) =>
-                  setConfirmNewPassword(
-                    e.target.value
-                  )
-                }
-                placeholder="Confirm your new password"
-                autoComplete="new-password"
-                required
-              />
-
-            </label>
-
-
-            <button
-              className="primary-button full"
-              type="submit"
-              disabled={submitting}
-            >
-              {submitting
-                ? 'Updating…'
-                : 'Set New Password'}
-            </button>
-
-          </form>
-
-        ) : (
-
-          <form
-            className="login-form"
-            onSubmit={submit}
-          >
-
-            <label>
-              Email Address
-
-              <input
-                type="email"
-                value={email}
-                onChange={(e) =>
-                  setEmail(e.target.value)
-                }
-                placeholder="name@company.com"
-                autoComplete="username"
-                autoFocus
-                required
-              />
-
-            </label>
-
-
-            <label>
-              Password
-
-              <div className="password-field">
-
-                <input
-                  type={
-                    showPassword
-                      ? 'text'
-                      : 'password'
-                  }
-                  value={password}
-                  onChange={(e) =>
-                    setPassword(e.target.value)
-                  }
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                  required
-                />
-
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() =>
-                    setShowPassword(
-                      (value) => !value
-                    )
-                  }
-                  aria-label={
-                    showPassword
-                      ? 'Hide password'
-                      : 'Show password'
-                  }
-                >
-                  {showPassword
-                    ? 'Hide'
-                    : 'Show'}
-                </button>
-
-              </div>
-
-            </label>
-
-
-            <button
-              className="primary-button full"
-              type="submit"
-              disabled={submitting}
-            >
-              {submitting
-                ? 'Signing in…'
-                : 'Sign In'}
-            </button>
-
-          </form>
-
-        )}
-
+        {!rejected && onRefresh && <button className="secondary-button full" onClick={onRefresh}>Check Approval Status</button>}
+        <button className="text-button" style={{ width: '100%', marginTop: '14px' }} onClick={logout}>Sign out</button>
       </div>
-
     </div>
   )
 }
@@ -452,6 +372,9 @@ function App() {
 
   const [customers, setCustomers] =
     useState([])
+
+  const [registration, setRegistration] =
+    useState(undefined)
 
   const [error, setError] =
     useState('')
@@ -490,8 +413,20 @@ function App() {
 
 
   useEffect(() => {
+    if (!user) {
+      setRegistration(null)
+      return
+    }
+    setRegistration(undefined)
+    getMyRegistrationStatus()
+      .then(setRegistration)
+      .catch((e) => setRegistration({ approvalStatus: 'Error', message: e?.message || 'Unable to check account approval status.' }))
+  }, [user])
 
-    if (!user) return
+
+  useEffect(() => {
+
+    if (!user || registration?.approvalStatus !== 'Approved') return
 
     setLoadingTickets(true)
 
@@ -509,7 +444,7 @@ function App() {
         setLoadingTickets(false)
       )
 
-  }, [user])
+  }, [user, registration?.approvalStatus])
 
 
   const isAdmin =
@@ -727,6 +662,14 @@ function App() {
         setNotice('User disabled successfully.')
       } else if (changes?.enabled === true) {
         setNotice('User enabled successfully.')
+      } else if (changes?.action === 'approve') {
+        setNotice('Customer registration approved successfully.')
+      } else if (changes?.action === 'reject') {
+        setNotice('Customer registration rejected and the account was disabled.')
+      } else if (changes?.action === 'approve') {
+        setNotice('Customer registration approved successfully.')
+      } else if (changes?.action === 'reject') {
+        setNotice('Customer registration rejected and the account was disabled.')
       } else if (changes?.role) {
         setNotice('User role updated successfully.')
       } else {
@@ -804,6 +747,22 @@ function App() {
 
   if (!user) {
     return <LoginScreen />
+  }
+
+  if (registration === undefined) {
+    return <div className="loading-screen">Checking account approval…</div>
+  }
+
+  if (registration.approvalStatus === 'PendingApproval') {
+    return <ApprovalPendingScreen user={user} onRefresh={async () => setRegistration(await getMyRegistrationStatus())} />
+  }
+
+  if (registration.approvalStatus === 'Rejected') {
+    return <ApprovalPendingScreen user={user} rejected />
+  }
+
+  if (registration.approvalStatus === 'Error') {
+    return <ApprovalPendingScreen user={user} errorMessage={registration.message} onRefresh={async () => setRegistration(await getMyRegistrationStatus())} />
   }
 
 
@@ -2753,10 +2712,13 @@ function UserRow({
   const [resettingPassword, setResettingPassword] =
     useState(false)
 
+  const [approvalCustomerId, setApprovalCustomerId] = useState(user.customerId || '')
+  const [approvalBusy, setApprovalBusy] = useState(false)
+
   const userRole =
     user.role ||
     user.groups?.[0] ||
-    'Customers'
+    'PendingApproval'
 
   const canEditTarget =
     actorRole === 'SuperAdmins'
@@ -2892,7 +2854,46 @@ function UserRow({
           }}
         >
 
-          {canEditTarget && (
+          {isSuperAdmin && (userRole === 'PendingApproval' || userRole === 'PendingVerification') && (
+            <div className="approval-action-card">
+              <div>
+                <strong>{userRole === 'PendingVerification' ? 'Email verification pending' : 'Customer registration awaiting approval'}</strong>
+                <small>{user.email} · Email verification: {user.emailVerified ? 'Verified' : 'Not verified'}</small>
+              </div>
+              {userRole === 'PendingApproval' && user.emailVerified && (
+                <>
+                  <select value={approvalCustomerId} onChange={(e) => setApprovalCustomerId(e.target.value)}>
+                    <option value="">Select customer to assign</option>
+                    {customers.filter((item) => String(item.status || 'Active').toLowerCase() === 'active').map((item) => (
+                      <option key={item.customerId} value={item.customerId}>{item.customerName} ({item.customerId})</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={!approvalCustomerId || approvalBusy}
+                    onClick={async () => {
+                      setApprovalBusy(true)
+                      try { await onUpdate(user.username, { action: 'approve', customerId: approvalCustomerId }) } finally { setApprovalBusy(false) }
+                    }}
+                  >
+                    {approvalBusy ? 'Approving…' : 'Approve Customer'}
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={approvalBusy}
+                onClick={async () => {
+                  setApprovalBusy(true)
+                  try { await onUpdate(user.username, { action: 'reject' }) } finally { setApprovalBusy(false) }
+                }}
+              >Reject</button>
+            </div>
+          )}
+
+          {userRole !== 'PendingApproval' && canEditTarget && (
             <button
               type="button"
               className="secondary-button"
@@ -3017,7 +3018,7 @@ function UserRow({
             </div>
           )}
 
-          {isSuperAdmin && (
+          {isSuperAdmin && userRole !== 'PendingApproval' && (
             <select
               value={userRole}
               onChange={(e) => {
