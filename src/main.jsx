@@ -1667,6 +1667,11 @@ function NewTicket({
   const [serialError, setSerialError] = useState('')
 
   const checkSerial = async () => {
+    if (isAdmin && !form.customerEmail.trim()) {
+      setSerialAsset(null)
+      setSerialError('Enter the customer email address before validating the asset.')
+      return
+    }
     if (!form.serialNumber.trim()) {
       setSerialAsset(null)
       setSerialError('Serial number is required.')
@@ -1675,7 +1680,7 @@ function NewTicket({
     setSerialChecking(true)
     setSerialError('')
     try {
-      const result = await validateTicketSerial(form.serialNumber.trim())
+      const result = await validateTicketSerial(form.serialNumber.trim(), '', isAdmin ? form.customerEmail.trim() : '')
       setSerialAsset(result)
     } catch (error) {
       setSerialAsset(null)

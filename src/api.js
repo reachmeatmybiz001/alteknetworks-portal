@@ -35,6 +35,6 @@ export const createCustomerAsset = (customerId, body) => request(`/customers/${e
 export const importCustomerAssets = (customerId, rows) => request(`/customers/${encodeURIComponent(customerId)}/assets/import`, { method: 'POST', body: JSON.stringify({ rows }) })
 export const updateCustomerAsset = (customerId, serialNumber, body) => request(`/customers/${encodeURIComponent(customerId)}/assets/${encodeURIComponent(serialNumber)}`, { method: 'PATCH', body: JSON.stringify(body) })
 export const deleteCustomerAsset = (customerId, serialNumber) => request(`/customers/${encodeURIComponent(customerId)}/assets/${encodeURIComponent(serialNumber)}`, { method: 'DELETE' })
-export const validateTicketSerial = (serialNumber, customerId = '') => request('/tickets/validate-serial', { method: 'POST', body: JSON.stringify({ serialNumber, ...(customerId ? { customerId } : {}) }) })
+export const validateTicketSerial = (serialNumber, customerId = '', customerEmail = '') => request('/tickets/validate-serial', { method: 'POST', body: JSON.stringify({ serialNumber, ...(customerId ? { customerId } : {}), ...(customerEmail ? { customerEmail } : {}) }) })
 
 export const getMyRegistrationStatus = () => request('/me')
