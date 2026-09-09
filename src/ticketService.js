@@ -182,6 +182,6 @@ export async function getTicketAttachmentDownloadUrl(id, attachmentId) {
   return result.url
 }
 
-export async function validateTicketSerial(serialNumber, customerId = '') {
-  return apiValidateTicketSerial(serialNumber, customerId)
+export async function validateTicketSerial(serialNumber, customerId = '', customerEmail = '') {
+  return apiValidateTicketSerial(serialNumber, customerId, customerEmail)
 }
