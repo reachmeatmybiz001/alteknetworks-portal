@@ -458,9 +458,16 @@ function App() {
     setError('')
 
     listTickets()
-
-      .then(setTickets)
-
+      .then((items) => {
+        const list = Array.isArray(items) ? items : []
+        // Defense-in-depth UI filtering. The backend is the authoritative
+        // security boundary and already filters by the authenticated customerId.
+        if (!isAdmin && registration?.customerId) {
+          setTickets(list.filter((ticket) => String(ticket.customerId || '') === String(registration.customerId)))
+        } else {
+          setTickets(list)
+        }
+      })
       .catch((e) =>
         setError(e.message)
       )
