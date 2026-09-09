@@ -460,10 +460,16 @@ function App() {
     listTickets()
       .then((items) => {
         const list = Array.isArray(items) ? items : []
-        // Defense-in-depth UI filtering. The backend is the authoritative
-        // security boundary and already filters by the authenticated customerId.
-        if (!isAdmin && registration?.customerId) {
-          setTickets(list.filter((ticket) => String(ticket.customerId || '') === String(registration.customerId)))
+        // Defense-in-depth UI filtering. customerId may be shared by multiple
+        // portal users under the same company, so customer users are scoped to
+        // their own authenticated email/owner identity. The backend is the
+        // authoritative security boundary.
+        if (!isAdmin && registration?.email) {
+          const email = String(registration.email).trim().toLowerCase()
+          setTickets(list.filter((ticket) =>
+            String(ticket.customerEmail || ticket.customerUserEmail || ticket.createdByEmail || ticket.createdBy || '')
+              .trim().toLowerCase() === email
+          ))
         } else {
           setTickets(list)
         }
