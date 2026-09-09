@@ -554,20 +554,58 @@ async function validateTicketSerial(event) {
   const currentRole = role(event)
   const body = parseBody(event)
   const serialNumber = String(body.serialNumber || '').trim()
-  let customerId = currentRole === 'Customers'
-    ? await getAuthenticatedCustomerId(event)
-    : String(body.customerId || '').trim()
-  if (currentRole !== 'Customers' && !customerId && body.customerEmail) {
-    customerId = await getCustomerIdForEmail(body.customerEmail)
-    if (!customerId) {
-      throw Object.assign(new Error('Customer email is not associated with an approved customer account.'), { statusCode: 404 })
+
+  if (!serialNumber) {
+    return response(200, {
+      valid: false,
+      message: 'Serial number is required.',
+    })
+  }
+
+  // Customers are NEVER allowed to choose a customerId/customerEmail from
+  // the browser. The customer is derived from the authenticated Cognito user.
+  let customerId = ''
+  if (currentRole === 'Customers') {
+    const c = claims(event)
+    customerId = String(c['custom:customerId'] || '').trim()
+    if (!customerId) customerId = await getAuthenticatedCustomerId(event)
+  } else {
+    customerId = String(body.customerId || '').trim()
+    if (!customerId && body.customerEmail) {
+      customerId = await getCustomerIdForEmail(body.customerEmail)
+      if (!customerId) {
+        return response(200, {
+          valid: false,
+          message: 'Customer email is not associated with an approved customer account.',
+        })
+      }
     }
   }
+
   if (!customerId) {
-    throw Object.assign(new Error(currentRole === 'Customers' ? 'Customer account is not associated with a customer record.' : 'Customer email or customer ID is required.'), { statusCode: 400 })
+    return response(200, {
+      valid: false,
+      message: currentRole === 'Customers'
+        ? 'Customer account is not associated with a customer record.'
+        : 'Customer email or customer ID is required.',
+    })
   }
+
   if (currentRole !== 'Customers') await requireActiveCustomer(customerId)
-  const asset = await validateSerialForCustomer(serialNumber, customerId, currentRole !== 'Customers')
+
+  const asset = await getAsset(serialNumber)
+
+  // A missing serial, inactive asset, or an asset belonging to another
+  // customer is a normal validation failure — NOT a server error. Returning
+  // a 200 business result also prevents browsers/API wrappers from replacing
+  // the useful message with a generic "Internal Server Error".
+  if (!asset || String(asset.customerId || '') !== String(customerId) || String(asset.status || 'Active').toLowerCase() !== 'active') {
+    return response(200, {
+      valid: false,
+      message: 'Asset serial number is not registered for your account.',
+    })
+  }
+
   return response(200, {
     valid: true,
     serialNumber: asset.serialNumber,
