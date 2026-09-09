@@ -44,7 +44,6 @@ import {
 import * as XLSX from 'xlsx'
 
 import './styles.css'
-import { corporateEmailError } from './emailPolicy'
 
 
 const categories = [
@@ -102,7 +101,13 @@ function LoginScreen() {
   const [verificationCode, setVerificationCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [loginError, setLoginError] = useState('')
+  const [loginError, setLoginError] = useState(() => {
+    try {
+      const message = sessionStorage.getItem('alteknetworks_access_message') || ''
+      if (message) sessionStorage.removeItem('alteknetworks_access_message')
+      return message
+    } catch { return '' }
+  })
   const [notice, setNotice] = useState('')
   const [challenge, setChallenge] = useState('')
 
@@ -188,11 +193,6 @@ function LoginScreen() {
       setLoginError('Please complete all registration fields.')
       return
     }
-    const emailPolicyError = corporateEmailError(normalizedEmail)
-    if (emailPolicyError) {
-      setLoginError(emailPolicyError)
-      return
-    }
     if (password !== confirmPassword) {
       setLoginError('Passwords do not match.')
       return
@@ -263,7 +263,7 @@ function LoginScreen() {
           <h1>{mode === 'register' ? 'Create your customer account' : mode === 'verify' ? 'Verify your email' : 'Welcome to your IT support portal'}</h1>
           <p>
             {mode === 'register'
-              ? 'Register your company email to request access to the ALTEKNETWORKS support portal.'
+              ? 'Register your email address to request access to the ALTEKNETWORKS support portal.'
               : mode === 'verify'
                 ? 'Enter the one-time password sent to your email address.'
                 : 'Sign in to raise service requests, track incidents and stay connected with the ALTEKNETWORKS support team.'}
@@ -285,11 +285,11 @@ function LoginScreen() {
           </form>
         ) : mode === 'register' ? (
           <form className="login-form" onSubmit={submitRegistration}>
-            <label>Business Email Address<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="username" required /></label>
+            <label>Email Address<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="username" required /></label>
             <label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Create a password" autoComplete="new-password" required /><button type="button" className="password-toggle" onClick={() => setShowPassword((v) => !v)}>{showPassword ? 'Hide' : 'Show'}</button></div></label>
             <label>Confirm Password<input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm your password" autoComplete="new-password" required /></label>
             <button className="primary-button full" disabled={submitting}>{submitting ? 'Registering…' : 'Create Customer Account'}</button>
-            <p className="login-help">Use your corporate email only. After registration, verify the OTP sent to your email. Your registration will then be marked <strong>Pending Approval with Admin</strong> until a Super Admin approves it.</p>
+            <p className="login-help">Anyone can register with a valid email address. After registration, verify the OTP sent to your email. Your registration will then be marked <strong>Pending Approval with Admin</strong> until a Super Admin approves it.</p>
             <button type="button" className="text-button" onClick={() => switchMode('login')}>Already registered? Sign In</button>
           </form>
         ) : challenge === 'NEW_PASSWORD_REQUIRED' ? (
@@ -305,7 +305,7 @@ function LoginScreen() {
             <button className="primary-button full" disabled={submitting}>{submitting ? 'Signing in…' : 'Sign In'}</button>
             <div className="login-divider"><span>Customer access</span></div>
             <button type="button" className="secondary-button full" onClick={() => switchMode('register')}>Create Customer Account</button>
-            <p className="login-help">New customer? Register with your corporate email, verify the OTP, and wait for Super Admin approval.</p>
+            <p className="login-help">New customer? Register with your email address, verify the OTP, and wait for Super Admin approval. Only approved customer accounts can access the portal.</p>
           </form>
         )}
       </div>
@@ -376,6 +376,11 @@ function App() {
   const [registration, setRegistration] =
     useState(undefined)
 
+  const [accessMessage, setAccessMessage] =
+    useState(() => {
+      try { return sessionStorage.getItem('alteknetworks_access_message') || '' } catch { return '' }
+    })
+
   const [error, setError] =
     useState('')
 
@@ -419,8 +424,28 @@ function App() {
     }
     setRegistration(undefined)
     getMyRegistrationStatus()
-      .then(setRegistration)
-      .catch((e) => setRegistration({ approvalStatus: 'Error', message: e?.message || 'Unable to check account approval status.' }))
+      .then(async (status) => {
+        setRegistration(status)
+        // Authentication alone is not portal access. Customers must be approved.
+        // Admin roles are considered approved by the backend as well.
+        if (status?.approvalStatus !== 'Approved') {
+          const message = status?.approvalStatus === 'Rejected'
+            ? 'Your registration was not approved. Please contact ALTEKNETWORKS support.'
+            : status?.approvalStatus === 'EmailVerificationPending'
+              ? 'Please verify your email address before accessing the portal.'
+              : 'Your registration is pending Super Admin approval. Only approved customer accounts can access the portal.'
+          try { sessionStorage.setItem('alteknetworks_access_message', message) } catch {}
+          setAccessMessage(message)
+          await logout()
+        } else {
+          try { sessionStorage.removeItem('alteknetworks_access_message') } catch {}
+          setAccessMessage('')
+        }
+      })
+      .catch((e) => {
+        const message = e?.message || 'Unable to check account approval status.'
+        setRegistration({ approvalStatus: 'Error', message })
+      })
   }, [user])
 
 
@@ -1681,12 +1706,9 @@ function NewTicket({
     setSerialError('')
     try {
       const result = await validateTicketSerial(form.serialNumber.trim(), '', isAdmin ? form.customerEmail.trim() : '')
-      // Treat anything other than an explicit, complete successful validation
-      // as a validation failure. This prevents an incomplete/legacy API response
-      // from being rendered as "Valid asset: — · — · —".
-      if (result?.valid !== true || !result?.serialNumber || !result?.customerId) {
+      if (result?.valid === false) {
         setSerialAsset(null)
-        setSerialError(result?.message || 'Asset serial number is not registered for your account.')
+        setSerialError(result.message || 'Asset serial number is not registered for your account.')
         return
       }
       setSerialAsset(result)
