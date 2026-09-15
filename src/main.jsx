@@ -1850,32 +1850,34 @@ function NewTicket({
           </label>
 
 
-          <label>
+          {isAdmin && (
+            <label>
 
-            Category
+              Category
 
-            <select
-              value={form.category}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  category:
-                    e.target.value,
-                })
-              }
-            >
+              <select
+                value={form.category}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    category:
+                      e.target.value,
+                  })
+                }
+              >
 
-              {categories.map(
-                (c) => (
-                  <option key={c}>
-                    {c}
-                  </option>
-                )
-              )}
+                {categories.map(
+                  (c) => (
+                    <option key={c}>
+                      {c}
+                    </option>
+                  )
+                )}
 
-            </select>
+              </select>
 
-          </label>
+            </label>
+          )}
 
 
           <label>
