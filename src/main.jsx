@@ -348,6 +348,12 @@ function ApprovalPendingScreen({ user, rejected = false, errorMessage = '', onRe
    APP
 ========================================================= */
 
+function displayTicketNumber(ticket) {
+  return ticket?.ticketNumber !== undefined && ticket?.ticketNumber !== null
+    ? String(ticket.ticketNumber)
+    : ticket?.id || ''
+}
+
 function App() {
   const [user, setUser] =
     useState(undefined)
@@ -540,7 +546,7 @@ function App() {
         ...current,
       ])
 
-      setNotice(`Ticket ${ticket.id} created successfully.`)
+      setNotice(`Ticket ${displayTicketNumber(ticket)} created successfully.`)
       setView('tickets')
     } catch (error) {
       setError(error?.message || 'Unable to create ticket.')
@@ -1371,9 +1377,9 @@ function TicketTable({
                     type="button"
                     className="ticket-link"
                     onClick={() => openTicket(t.id)}
-                    aria-label={`Open ticket ${t.id}`}
+                    aria-label={`Open ticket ${displayTicketNumber(t)}`}
                   >
-                    {t.id}
+                    {displayTicketNumber(t)}
                   </button>
                 </span>
 
@@ -1547,7 +1553,7 @@ function TicketProcessingPanel({
       <div className="ticket-processing-head">
         <div>
           <span className="eyebrow">{admin ? 'TICKET PROCESSING' : 'TICKET DETAILS'}</span>
-          <h2>{ticket.id} — {ticket.subject}</h2>
+          <h2>{displayTicketNumber(ticket)} — {ticket.subject}</h2>
           <p>Customer: <strong>{formatIdentity(ticket.customerEmail, '—')}</strong></p>
         </div>
         <button type="button" className="secondary-button" onClick={onClose} disabled={saving || uploading}>Close panel</button>
@@ -1991,6 +1997,7 @@ function NewTicket({
 
 function exportTicketsToExcel(tickets) {
   const rows = tickets.map((ticket) => ({
+    'Ticket Number': ticket.ticketNumber ?? '',
     'Ticket ID': ticket.id || '',
     'Customer Email': ticket.customerEmail || '',
     'Subject': ticket.subject || '',
